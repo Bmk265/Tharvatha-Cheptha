@@ -7,49 +7,70 @@
       <h5 class="fw-bold mb-1">{{ current_user.name }}</h5>
       <div class="small text-muted">{{ current_user.email }}</div>
     </div>
-    <span class="badge bg-primary rounded-pill">{{ active_membership.role|upper }}</span>
+    {% if active_membership %}
+      <span class="badge bg-primary rounded-pill">{{ active_membership.role|upper }}</span>
+    {% else %}
+      <span class="badge bg-secondary rounded-pill">NO TEAM</span>
+    {% endif %}
   </div>
   <div class="alert alert-info py-2 px-3 small mt-3 mb-0 rounded-3">
     <strong>Virtual Records Only:</strong> All balances, deposits, and bills in TeamPool are record-keeping figures and cannot be withdrawn or transferred as real money.
   </div>
 </div>
 
-<!-- Multi-Team Management -->
+<!-- Open Create & Join Team Options -->
 <div class="card p-3 mb-3">
-  <h6 class="fw-bold mb-2"><i class="bi bi-people me-1 text-primary"></i>Teams ({{ user_teams|length }})</h6>
-  <p class="small text-muted mb-2">Active Team Invite Code: <strong>{{ active_team.invite_code }}</strong></p>
+  <h6 class="fw-bold mb-2"><i class="bi bi-people me-1 text-primary"></i>Create or Join a Team</h6>
 
-  <form method="POST" action="{{ url_for('switch_team') }}" class="d-flex gap-2 mb-3">
-    <select name="team_id" class="form-select form-select-sm">
-      {% for t in user_teams %}
-        <option value="{{ t.id }}" {{ 'selected' if t.id == active_team.id else '' }}>{{ t.name }} ({{ t.invite_code }})</option>
-      {% endfor %}
-    </select>
-    <button class="btn btn-sm btn-outline-primary rounded-pill px-3">Switch</button>
-  </form>
-
-  <div class="row g-2">
+  <div class="row g-2 mb-3">
     <div class="col-md-6">
-      <form method="POST" action="{{ url_for('create_team') }}" class="bg-light p-2 rounded-3">
-        <div class="small fw-bold mb-1">Create New Team</div>
-        <input type="text" name="team_name" class="form-control form-control-sm mb-1" placeholder="Team name" required>
+      <form method="POST" action="{{ url_for('create_team') }}" class="bg-light p-3 rounded-3 h-100">
+        <div class="small fw-bold mb-2 text-primary">Create New Team</div>
+        <input type="text" name="team_name" class="form-control form-control-sm mb-2" placeholder="Team / room name" required>
         <input type="text" name="team_city" class="form-control form-control-sm mb-2" placeholder="City (optional)">
         <button class="btn btn-sm btn-primary w-100 rounded-pill">Create Team</button>
       </form>
     </div>
     <div class="col-md-6">
-      <form method="POST" action="{{ url_for('join_team') }}" class="bg-light p-2 rounded-3 h-100 d-flex flex-column justify-content-between">
+      <form method="POST" action="{{ url_for('join_team') }}" class="bg-light p-3 rounded-3 h-100 d-flex flex-column justify-content-between">
         <div>
-          <div class="small fw-bold mb-1">Join Team by Code</div>
-          <input type="text" name="invite_code" class="form-control form-control-sm text-uppercase mb-2" placeholder="Invite code" required>
+          <div class="small fw-bold mb-2 text-success">Join Existing Team</div>
+          <input type="text" name="invite_code" class="form-control form-control-sm text-uppercase mb-2" placeholder="Enter invite code" required>
         </div>
         <button class="btn btn-sm btn-success w-100 rounded-pill">Join Team</button>
       </form>
     </div>
   </div>
+
+  <!-- Your Joined Teams (Switch or Leave) -->
+  <h6 class="fw-bold small text-uppercase text-muted mb-2">Your Teams ({{ user_memberships|length }})</h6>
+  {% for um in user_memberships %}
+    <div class="d-flex justify-content-between align-items-center py-2 border-bottom flex-wrap gap-2">
+      <div>
+        <span class="fw-semibold small">{{ um.team.name }}</span>
+        <span class="badge bg-secondary-subtle text-dark ms-1">{{ um.team.invite_code }}</span>
+        <span class="badge {{ 'bg-success' if um.role == 'cashier' else 'bg-light text-dark border' }} ms-1">{{ um.role }}</span>
+      </div>
+      <div class="d-flex gap-2">
+        {% if not active_team or um.team_id != active_team.id %}
+          <form method="POST" action="{{ url_for('switch_team') }}" class="m-0">
+            <input type="hidden" name="team_id" value="{{ um.team_id }}">
+            <button class="btn btn-sm btn-outline-primary rounded-pill px-3">Switch</button>
+          </form>
+        {% endif %}
+        <form method="POST" action="{{ url_for('leave_team') }}" class="m-0" onsubmit="return confirm('Leave {{ um.team.name }}?');">
+          <input type="hidden" name="team_id" value="{{ um.team_id }}">
+          <button class="btn btn-sm btn-outline-danger rounded-pill px-3">Leave Team</button>
+        </form>
+      </div>
+    </div>
+  {% else %}
+    <p class="text-muted small mb-0">You are not in any team yet. Create one or join using an invite code above.</p>
+  {% endfor %}
 </div>
 
-<!-- Team Members & Cashier Role Transfer -->
+<!-- Active Team Members & Cashier Role Transfer -->
+{% if active_team and team_memberships %}
 <div class="card p-3 mb-3">
   <h6 class="fw-bold mb-2">Members in {{ active_team.name }}</h6>
   {% for tm in team_memberships %}
@@ -66,6 +87,7 @@
     </div>
   {% endfor %}
 </div>
+{% endif %}
 
 <!-- Edit Profile -->
 <div class="card p-3 mb-3">
@@ -83,5 +105,14 @@
   </form>
 </div>
 
-<a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2">Logout</a>
+<!-- Leave Active Team & Logout -->
+<div class="d-grid gap-2">
+  {% if active_team %}
+    <form method="POST" action="{{ url_for('leave_team') }}" class="m-0" onsubmit="return confirm('Leave active team {{ active_team.name }}?');">
+      <input type="hidden" name="team_id" value="{{ active_team.id }}">
+      <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2">Leave {{ active_team.name }}</button>
+    </form>
+  {% endif %}
+  <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm w-100 rounded-pill py-2">Logout</a>
+</div>
 {% endblock %}
