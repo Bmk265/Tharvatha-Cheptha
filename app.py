@@ -1,14 +1,24 @@
 import os
+import uuid
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from sqlalchemy import text, inspect
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-secret-key-in-render')
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # 8 MB max upload
+
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 db_url = os.environ.get('DATABASE_URL', 'sqlite:///team_expenses.db')
 if db_url.startswith("postgres://"):
@@ -29,6 +39,24 @@ CATEGORIES = [
 ]
 
 
+def _allowed_image(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+
+def _save_uploaded_image(file_storage):
+    if not file_storage or not file_storage.filename:
+        return None
+    if not _allowed_image(file_storage.filename):
+        return None
+    ext = file_storage.filename.rsplit('.', 1)[1].lower()
+    unique_name = f"{uuid.uuid4().hex}_{secure_filename(file_storage.filename)}"
+    if not unique_name.lower().endswith(f".{ext}"):
+        unique_name = f"{uuid.uuid4().hex}.{ext}"
+    save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+    file_storage.save(save_path)
+    return f"uploads/{unique_name}"
+
+
 # ---------------- MODELS ----------------
 class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -46,7 +74,7 @@ class TeamMembership(db.Model):
     role = db.Column(db.String(20), default='member')  # 'cashier' or 'member'
     personal_balance = db.Column(db.Float, default=0.0)
     joined_at = db.Column(db.DateTime, default=datetime.now)
-    team = db.relationship('Team', backref='memberships')
+    team = db.relationship('Team', backref=db.backref('memberships', cascade='all, delete-orphan'))
     user = db.relationship('User', backref='memberships')
 
 
@@ -110,6 +138,7 @@ class FeedPost(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     tag = db.Column(db.String(40), default='Update')
     content = db.Column(db.Text, nullable=False)
+    image_path = db.Column(db.String(255), nullable=True)
     shares_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.now)
     author = db.relationship('User', backref='feed_posts')
@@ -141,13 +170,13 @@ def ensure_schema_and_default_team():
     db.create_all()
     inspector = inspect(db.engine)
 
-    # Safe column additions for existing deployments
     table_columns = {
         'user': [('active_team_id', 'INTEGER')],
         'pool_ledger': [('team_id', 'INTEGER')],
         'bill_claim': [('team_id', 'INTEGER')],
         'personal_transaction': [('team_id', 'INTEGER')],
         'chat_message': [('team_id', 'INTEGER')],
+        'feed_post': [('image_path', 'VARCHAR(255)')],
     }
     for tbl, cols in table_columns.items():
         if tbl in inspector.get_table_names():
@@ -157,53 +186,16 @@ def ensure_schema_and_default_team():
                     db.session.execute(text(f'ALTER TABLE "{tbl}" ADD COLUMN {col_name} {col_type}'))
     db.session.commit()
 
-    # Ensure at least one team exists and attach existing users/records
-    team = Team.query.first()
-    if not team:
-        first_user = User.query.order_by(User.id.asc()).first()
-        team = Team(
-            name="Main Room Team",
-            city="",
-            invite_code="ROOM101",
-            created_by=first_user.id if first_user else None
-        )
-        db.session.add(team)
-        db.session.commit()
-
-    for model_cls in [PoolLedger, BillClaim, PersonalTransaction, ChatMessage]:
-        model_cls.query.filter(model_cls.team_id.is_(None)).update({model_cls.team_id: team.id})
-
-    users = User.query.all()
-    for idx, u in enumerate(users):
-        if not u.active_team_id:
-            u.active_team_id = team.id
-        membership = TeamMembership.query.filter_by(team_id=team.id, user_id=u.id).first()
-        if not membership:
-            role = u.role if u.role in ('cashier', 'member') else ('cashier' if idx == 0 else 'member')
-            db.session.add(TeamMembership(
-                team_id=team.id,
-                user_id=u.id,
-                role=role,
-                personal_balance=u.personal_balance or 0.0
-            ))
-    db.session.commit()
-
 
 def get_active_team_context():
     if not current_user.is_authenticated:
         return None, None
     memberships = TeamMembership.query.filter_by(user_id=current_user.id).all()
     if not memberships:
-        team = Team.query.first()
-        if not team:
-            team = Team(name="My Team", invite_code=f"TEAM{current_user.id}01", created_by=current_user.id)
-            db.session.add(team)
+        if current_user.active_team_id is not None:
+            current_user.active_team_id = None
             db.session.commit()
-        m = TeamMembership(team_id=team.id, user_id=current_user.id, role='cashier', personal_balance=0.0)
-        db.session.add(m)
-        current_user.active_team_id = team.id
-        db.session.commit()
-        return team, m
+        return None, None
 
     active_m = next((m for m in memberships if m.team_id == current_user.active_team_id), memberships[0])
     if current_user.active_team_id != active_m.team_id:
@@ -231,11 +223,14 @@ def inject_globals():
     }
 
 
-def cashier_required(f):
+def team_and_cashier_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        _, membership = get_active_team_context()
-        if not membership or membership.role != 'cashier':
+        team, membership = get_active_team_context()
+        if not team or not membership:
+            flash("Join or create a team first from your Profile.", "warning")
+            return redirect(url_for('profile'))
+        if membership.role != 'cashier':
             flash("Only this team's Cashier can perform this action.", "danger")
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
@@ -270,10 +265,6 @@ def register():
         name = request.form['name'].strip()
         email = request.form['email'].strip().lower()
         password = request.form['password']
-        team_mode = request.form.get('team_mode', 'create')  # 'create' or 'join'
-        team_name = request.form.get('team_name', '').strip()
-        team_city = request.form.get('team_city', '').strip()
-        invite_code = request.form.get('invite_code', '').strip().upper()
 
         if User.query.filter_by(email=email).first():
             flash("Email already registered.", "danger")
@@ -286,37 +277,8 @@ def register():
             role='member'
         )
         db.session.add(user)
-        db.session.flush()
-
-        if team_mode == 'join' and invite_code:
-            target_team = Team.query.filter_by(invite_code=invite_code).first()
-            if not target_team:
-                db.session.rollback()
-                flash("Invalid team invite code.", "danger")
-                return redirect(url_for('register'))
-            role = 'member'
-        else:
-            final_team_name = team_name or f"{name}'s Team"
-            target_team = Team(
-                name=final_team_name,
-                city=team_city,
-                invite_code=_unique_invite_code(final_team_name),
-                created_by=user.id
-            )
-            db.session.add(target_team)
-            db.session.flush()
-            role = 'cashier'
-
-        user.role = role
-        user.active_team_id = target_team.id
-        db.session.add(TeamMembership(
-            team_id=target_team.id,
-            user_id=user.id,
-            role=role,
-            personal_balance=0.0
-        ))
         db.session.commit()
-        flash(f"Welcome {name}! Joined '{target_team.name}' as {role.upper()}.", "success")
+        flash("Account created! Please log in, then create or join a team.", "success")
         return redirect(url_for('login'))
 
     return render_template('register.html')
@@ -330,7 +292,10 @@ def login():
         user = User.query.filter_by(email=email).first()
         if user and check_password_hash(user.password_hash, password):
             login_user(user)
-            get_active_team_context()
+            team, _ = get_active_team_context()
+            if not team:
+                flash("Logged in! Create or join a team from your Profile to get started.", "info")
+                return redirect(url_for('profile'))
             return redirect(url_for('dashboard'))
         flash("Invalid email or password.", "danger")
     return render_template('login.html')
@@ -343,7 +308,7 @@ def logout():
     return redirect(url_for('login'))
 
 
-# ---------------- TEAM SWITCH / CREATE / JOIN ----------------
+# ---------------- TEAM SWITCH / CREATE / JOIN / LEAVE ----------------
 @app.route('/team/switch', methods=['POST'])
 @login_required
 def switch_team():
@@ -411,11 +376,45 @@ def join_team():
     return redirect(url_for('dashboard'))
 
 
+@app.route('/team/leave', methods=['POST'])
+@login_required
+def leave_team():
+    team_id = int(request.form.get('team_id') or (current_user.active_team_id or 0))
+    membership = TeamMembership.query.filter_by(user_id=current_user.id, team_id=team_id).first()
+    if not membership:
+        flash("You are not a member of that team.", "warning")
+        return redirect(url_for('profile'))
+
+    team = membership.team
+    was_cashier = (membership.role == 'cashier')
+    db.session.delete(membership)
+    db.session.flush()
+
+    remaining = TeamMembership.query.filter_by(team_id=team_id).order_by(TeamMembership.id.asc()).all()
+    if was_cashier and remaining:
+        remaining[0].role = 'cashier'
+        if remaining[0].user:
+            remaining[0].user.role = 'cashier'
+    elif not remaining and team:
+        db.session.delete(team)
+
+    next_m = TeamMembership.query.filter_by(user_id=current_user.id).first()
+    current_user.active_team_id = next_m.team_id if next_m else None
+    current_user.role = next_m.role if next_m else 'member'
+    db.session.commit()
+
+    flash(f"Left team '{team.name}'.", "info")
+    return redirect(url_for('profile'))
+
+
 # ---------------- MAIN TABS ----------------
 @app.route('/')
 @login_required
 def dashboard():
     team, membership = get_active_team_context()
+    if not team:
+        return redirect(url_for('profile'))
+
     now = datetime.now()
     month_start = datetime(now.year, now.month, 1)
 
@@ -455,7 +454,7 @@ def dashboard():
 
 @app.route('/cashier/transaction', methods=['POST'])
 @login_required
-@cashier_required
+@team_and_cashier_required
 def cashier_transaction():
     team, _ = get_active_team_context()
     tx_type = request.form['tx_type']
@@ -507,6 +506,10 @@ def cashier_transaction():
 @login_required
 def submit_claim():
     team, _ = get_active_team_context()
+    if not team:
+        flash("Join or create a team first.", "warning")
+        return redirect(url_for('profile'))
+
     amount = float(request.form['amount'])
     category = request.form['category']
     remarks = request.form['remarks'].strip()
@@ -530,7 +533,7 @@ def submit_claim():
 
 @app.route('/claims/<int:claim_id>/<action>', methods=['POST'])
 @login_required
-@cashier_required
+@team_and_cashier_required
 def process_claim(claim_id, action):
     team, _ = get_active_team_context()
     claim = BillClaim.query.filter_by(id=claim_id, team_id=team.id).first_or_404()
@@ -540,30 +543,37 @@ def process_claim(claim_id, action):
 
     if action == 'approve':
         claim.status = 'approved'
-        pool_debit = PoolLedger(
+        # Monthly Deposit (Per Person) -> Credit; all other categories -> Debit
+        is_deposit = (claim.category == "Monthly Deposit (Per Person)")
+        ledger_type = 'credit' if is_deposit else 'debit'
+
+        pool_entry = PoolLedger(
             team_id=team.id,
-            tx_type='debit',
+            tx_type=ledger_type,
             amount=claim.amount,
             category=claim.category,
-            remarks=f"Approved Bill ({claim.user.name}): {claim.remarks}",
+            remarks=f"Approved ({ledger_type.upper()}) [{claim.user.name}]: {claim.remarks}",
             user_id=claim.user_id
         )
-        db.session.add(pool_debit)
+        db.session.add(pool_entry)
 
         tm = TeamMembership.query.filter_by(team_id=team.id, user_id=claim.user_id).first()
         if tm:
-            tm.personal_balance += claim.amount
+            if is_deposit:
+                tm.personal_balance += claim.amount
+            else:
+                tm.personal_balance -= claim.amount
 
-        personal_credit = PersonalTransaction(
+        personal_entry = PersonalTransaction(
             team_id=team.id,
             user_id=claim.user_id,
-            tx_type='credit',
+            tx_type=ledger_type,
             amount=claim.amount,
             category=claim.category,
-            remarks=f"Bill Approved: {claim.remarks}"
+            remarks=f"Bill Approved ({ledger_type.upper()}): {claim.remarks}"
         )
-        db.session.add(personal_credit)
-        flash(f"Approved ₹{claim.amount:.2f} for {claim.user.name}.", "success")
+        db.session.add(personal_entry)
+        flash(f"Approved ₹{claim.amount:.2f} as {ledger_type.upper()} for {claim.user.name}.", "success")
 
     elif action == 'reject':
         claim.status = 'rejected'
@@ -577,6 +587,9 @@ def process_claim(claim_id, action):
 @login_required
 def my_transactions():
     team, membership = get_active_team_context()
+    if not team:
+        return redirect(url_for('profile'))
+
     selected_user_id = current_user.id
     if membership.role == 'cashier' and request.args.get('user_id'):
         selected_user_id = int(request.args.get('user_id'))
@@ -606,6 +619,9 @@ def my_transactions():
 @login_required
 def all_transactions():
     team, _ = get_active_team_context()
+    if not team:
+        return redirect(url_for('profile'))
+
     person_filter = request.args.get('person', '')
     month_filter = request.args.get('month', '')
     category_filter = request.args.get('category', '')
@@ -638,15 +654,26 @@ def all_transactions():
 @login_required
 def feed():
     team, _ = get_active_team_context()
+    if not team:
+        return redirect(url_for('profile'))
+
     if request.method == 'POST':
         content = request.form.get('content', '').strip()
         tag = request.form.get('tag', 'Update').strip() or 'Update'
-        if content:
+        photo_file = request.files.get('photo')
+        image_rel_path = _save_uploaded_image(photo_file) if photo_file and photo_file.filename else None
+
+        if photo_file and photo_file.filename and not image_rel_path:
+            flash("Unsupported image format. Use PNG, JPG, JPEG, GIF, or WEBP.", "warning")
+            return redirect(url_for('feed'))
+
+        if content or image_rel_path:
             db.session.add(FeedPost(
                 team_id=team.id,
                 user_id=current_user.id,
                 tag=tag,
-                content=content
+                content=content or "",
+                image_path=image_rel_path
             ))
             db.session.commit()
             flash("Posted to team feed!", "success")
@@ -701,6 +728,9 @@ def track_share(post_id):
 @login_required
 def chat():
     team, _ = get_active_team_context()
+    if not team:
+        return redirect(url_for('profile'))
+
     if request.method == 'POST':
         msg_text = request.form.get('message', '').strip()
         if msg_text:
@@ -715,7 +745,7 @@ def chat():
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
-    team, membership = get_active_team_context()
+    team, _ = get_active_team_context()
     if request.method == 'POST':
         current_user.name = request.form['name'].strip()
         new_pass = request.form.get('new_password', '').strip()
@@ -725,13 +755,18 @@ def profile():
         flash("Profile updated!", "success")
         return redirect(url_for('profile'))
 
-    team_memberships = TeamMembership.query.filter_by(team_id=team.id).all()
-    return render_template('profile.html', team_memberships=team_memberships)
+    team_memberships = TeamMembership.query.filter_by(team_id=team.id).all() if team else []
+    user_memberships = TeamMembership.query.filter_by(user_id=current_user.id).all()
+    return render_template(
+        'profile.html',
+        team_memberships=team_memberships,
+        user_memberships=user_memberships
+    )
 
 
 @app.route('/profile/transfer-cashier/<int:user_id>', methods=['POST'])
 @login_required
-@cashier_required
+@team_and_cashier_required
 def transfer_cashier(user_id):
     team, current_membership = get_active_team_context()
     target_membership = TeamMembership.query.filter_by(team_id=team.id, user_id=user_id).first_or_404()
