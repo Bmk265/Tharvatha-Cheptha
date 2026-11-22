@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-3 mb-3 bg-white">
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      <small class="text-muted">Private Virtual Account ({{ viewed_user.name }})</small>
+      <h3 class="fw-bold mb-0">₹{{ "%.2f"|format(viewed_user.personal_balance) }}</h3>
+    </div>
+    {% if current_user.role == 'cashier' %}
+    <form method="GET">
+      <select name="user_id" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for m in members %}
+          <option value="{{ m.id }}" {{ 'selected' if m.id == viewed_user.id else '' }}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card p-3">
+  <h6 class="fw-bold mb-2">Individual Account Transactions</h6>
+  {% for t in transactions %}
+  <div class="border-bottom py-2 d-flex justify-content-between">
+    <div>
+      <div class="fw-semibold">{{ t.category }}</div>
+      <small class="text-muted">{{ t.remarks }} • {{ t.created_at.strftime('%d %b %Y, %I:%M %p') }}</small>
+    </div>
+    <span class="fw-bold {{ 'text-success' if t.tx_type == 'credit' else 'text-danger' }}">
+      {{ '+' if t.tx_type == 'credit' else '-' }}₹{{ "%.2f"|format(t.amount) }}
+    </span>
+  </div>
+  {% else %}
+  <p class="text-muted small mb-0">No individual transactions recorded yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}
