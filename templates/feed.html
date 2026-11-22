@@ -1,70 +1,117 @@
 {% extends "base.html" %}
 {% block content %}
+<!-- Create Post Box -->
 <div class="card p-3 mb-3">
-  <h6 class="fw-bold mb-2"><i class="bi bi-megaphone me-1 text-primary"></i>Post to {{ active_team.name }} Feed</h6>
-  <form method="POST">
-    <div class="d-flex gap-2 mb-2">
+  <h6 class="fw-bold mb-2"><i class="bi bi-camera me-1 text-primary"></i>New Feed Post — {{ active_team.name }}</h6>
+  <form method="POST" enctype="multipart/form-data">
+    <div class="d-flex gap-2 mb-2 align-items-center flex-wrap">
       <select name="tag" class="form-select form-select-sm w-auto rounded-pill">
         <option value="Update">Update</option>
         <option value="Grocery & Food">Grocery & Food</option>
         <option value="Rent & Bills">Rent & Bills</option>
-        <option value="Reminder">Reminder</option>
+        <option value="Room Life">Room Life</option>
       </select>
+      <label class="btn btn-sm btn-outline-secondary rounded-pill mb-0">
+        <i class="bi bi-image me-1"></i>Choose Photo
+        <input type="file" name="photo" id="feedPhotoInput" accept="image/*" class="d-none" onchange="previewFeedPhoto(this)">
+      </label>
+      <span id="feedPhotoName" class="small text-muted"></span>
     </div>
-    <textarea name="content" rows="2" class="form-control form-control-sm mb-2" placeholder="Share a bill note, room update, or message with your team..." required></textarea>
-    <button class="btn btn-primary btn-sm rounded-pill px-4">Post</button>
+
+    <div id="feedPhotoPreviewWrap" class="mb-2 d-none">
+      <img id="feedPhotoPreview" src="" alt="Preview" class="img-fluid rounded-3 border" style="max-height: 260px; width: 100%; object-fit: cover;">
+    </div>
+
+    <textarea name="content" rows="2" class="form-control form-control-sm mb-2" placeholder="Write a caption or share a room/bill update..."></textarea>
+    <button class="btn btn-primary btn-sm rounded-pill px-4">Share Post</button>
   </form>
 </div>
 
+<!-- Instagram-Style Feed Cards -->
 {% for p in posts %}
-  <div id="post-{{ p.id }}" class="card p-3 mb-3">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <div>
-        <span class="fw-bold small">{{ p.author.name }}</span>
-        <span class="text-muted" style="font-size: 0.72rem;">• {{ p.created_at.strftime('%d %b • %I:%M %p') }}</span>
+  <article id="post-{{ p.id }}" class="card mb-3 overflow-hidden">
+    <!-- Post Header -->
+    <div class="d-flex justify-content-between align-items-center px-3 py-2">
+      <div class="d-flex align-items-center gap-2">
+        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold" style="width: 34px; height: 34px; font-size: 0.85rem;">
+          {{ p.author.name[:1]|upper }}
+        </div>
+        <div>
+          <div class="fw-bold small lh-1">{{ p.author.name }}</div>
+          <span class="text-muted" style="font-size: 0.7rem;">{{ p.created_at.strftime('%d %b • %I:%M %p') }}</span>
+        </div>
       </div>
       <span class="badge bg-primary-subtle text-primary rounded-pill">{{ p.tag }}</span>
     </div>
 
-    <p class="mb-3" style="white-space: pre-line;">{{ p.content }}</p>
+    <!-- Photo (if uploaded) -->
+    {% if p.image_path %}
+      <div class="bg-dark text-center">
+        <img src="{{ url_for('static', filename=p.image_path) }}" alt="Feed image" class="img-fluid" style="width: 100%; max-height: 440px; object-fit: cover;">
+      </div>
+    {% endif %}
 
-    <div class="d-flex justify-content-between border-top border-bottom py-2 small">
-      <form method="POST" action="{{ url_for('toggle_like', post_id=p.id) }}" class="m-0">
-        <button class="btn btn-sm {{ 'btn-primary' if p.id in liked_post_ids else 'btn-light' }} rounded-pill px-3">
-          <i class="bi bi-heart{{ '-fill' if p.id in liked_post_ids else '' }}"></i> {{ p.likes|length }}
+    <!-- Action Bar + Caption + Comments -->
+    <div class="p-3">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <form method="POST" action="{{ url_for('toggle_like', post_id=p.id) }}" class="m-0">
+          <button class="btn btn-sm {{ 'btn-danger' if p.id in liked_post_ids else 'btn-light' }} rounded-pill px-3">
+            <i class="bi bi-heart{{ '-fill' if p.id in liked_post_ids else '' }}"></i> {{ p.likes|length }}
+          </button>
+        </form>
+
+        <button type="button" class="btn btn-sm btn-light rounded-pill px-3" data-bs-toggle="collapse" data-bs-target="#comments-{{ p.id }}">
+          <i class="bi bi-chat"></i> {{ p.comments|length }}
         </button>
-      </form>
 
-      <button type="button" class="btn btn-sm btn-light rounded-pill px-3" data-bs-toggle="collapse" data-bs-target="#comments-{{ p.id }}">
-        <i class="bi bi-chat-dots"></i> {{ p.comments|length }}
-      </button>
+        <button type="button" class="btn btn-sm btn-light rounded-pill px-3" onclick="sharePost({{ p.id }}, {{ p.content|tojson }})">
+          <i class="bi bi-send"></i> <span id="share-count-{{ p.id }}">{{ p.shares_count or 0 }}</span>
+        </button>
+      </div>
 
-      <button type="button" class="btn btn-sm btn-light rounded-pill px-3" onclick="sharePost({{ p.id }}, {{ p.content|tojson }})">
-        <i class="bi bi-share"></i> <span id="share-count-{{ p.id }}">{{ p.shares_count or 0 }}</span>
-      </button>
+      {% if p.content %}
+        <p class="mb-2 small" style="white-space: pre-line;">
+          <span class="fw-bold me-1">{{ p.author.name }}</span>{{ p.content }}
+        </p>
+      {% endif %}
+
+      <div class="collapse {{ 'show' if p.comments else '' }} mt-2" id="comments-{{ p.id }}">
+        {% for c in p.comments %}
+          <div class="bg-light rounded-3 px-2 py-1 mb-1 small">
+            <span class="fw-bold">{{ c.author.name }}</span> {{ c.comment }}
+          </div>
+        {% endfor %}
+        <form method="POST" action="{{ url_for('add_comment', post_id=p.id) }}" class="d-flex gap-2 mt-2">
+          <input type="text" name="comment" class="form-control form-control-sm rounded-pill" placeholder="Add a comment..." required>
+          <button class="btn btn-sm btn-dark rounded-pill px-3">Post</button>
+        </form>
+      </div>
     </div>
-
-    <div class="collapse {{ 'show' if p.comments else '' }} mt-2" id="comments-{{ p.id }}">
-      {% for c in p.comments %}
-        <div class="bg-light rounded-3 p-2 mb-1 small">
-          <span class="fw-bold">{{ c.author.name }}:</span> {{ c.comment }}
-        </div>
-      {% endfor %}
-      <form method="POST" action="{{ url_for('add_comment', post_id=p.id) }}" class="d-flex gap-2 mt-2">
-        <input type="text" name="comment" class="form-control form-control-sm rounded-pill" placeholder="Write a comment..." required>
-        <button class="btn btn-sm btn-dark rounded-pill px-3">Reply</button>
-      </form>
-    </div>
-  </div>
+  </article>
 {% else %}
   <div class="card p-4 text-center text-muted small">
-    No feed posts yet. Tap <strong>+</strong> or post above to start the team feed!
+    No posts yet. Tap <strong>+</strong> or upload a photo above to share with your team!
   </div>
 {% endfor %}
 {% endblock %}
 
 {% block scripts %}
 <script>
+  function previewFeedPhoto(input) {
+    const file = input.files && input.files[0];
+    const nameEl = document.getElementById('feedPhotoName');
+    const wrapEl = document.getElementById('feedPhotoPreviewWrap');
+    const imgEl = document.getElementById('feedPhotoPreview');
+    if (file) {
+      nameEl.textContent = file.name;
+      imgEl.src = URL.createObjectURL(file);
+      wrapEl.classList.remove('d-none');
+    } else {
+      nameEl.textContent = '';
+      wrapEl.classList.add('d-none');
+    }
+  }
+
   async function sharePost(postId, text) {
     const shareUrl = window.location.origin + "{{ url_for('feed') }}#post-" + postId;
     if (navigator.share) {
