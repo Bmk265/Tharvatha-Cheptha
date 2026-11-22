@@ -56,11 +56,15 @@
   <div class="d-flex justify-content-between align-items-center gap-2">
     <div class="flex-grow-1 min-w-0">
       <div class="text-uppercase small fw-semibold text-muted" style="font-size: 0.7rem; letter-spacing: 0.06em;">
-        <i class="bi bi-hourglass-split text-warning me-1"></i>Pending Bills ({{ current_month_label }})
+        <i class="bi bi-hourglass-split text-warning me-1"></i>Pending Bills (Sum Total)
       </div>
       <div class="fw-bold fs-4 text-warning num-tabular mt-1">₹{{ "%.2f"|format(pending_amount) }}</div>
       <div class="text-muted" style="font-size: 0.74rem;">
-        {{ pending_claims|length }} pending bill(s) across {{ pending_by_user|length }} member(s) • <span class="text-primary fw-semibold">Tap to view breakdown</span>
+        Pending Credit: <span class="text-success fw-semibold num-tabular">+₹{{ "%.2f"|format(pending_credits) }}</span> •
+        Pending Debit: <span class="text-danger fw-semibold num-tabular">-₹{{ "%.2f"|format(pending_debits) }}</span>
+      </div>
+      <div class="text-primary fw-semibold mt-1" style="font-size: 0.72rem;">
+        {{ pending_claims|length }} pending item(s) across {{ pending_by_user|length }} member(s) • Tap to view breakdown
       </div>
     </div>
     <div class="d-flex align-items-center gap-2 flex-shrink-0">
@@ -97,7 +101,11 @@
               <span class="avatar-circle avatar-sm">{{ person.user_name[:1]|upper }}</span>
               <div class="min-w-0">
                 <div class="fw-bold small text-dark text-truncate">{{ person.user_name }}</div>
-                <div class="text-muted" style="font-size: 0.72rem;">{{ person.count }} pending item(s)</div>
+                <div class="text-muted" style="font-size: 0.7rem;">
+                  {{ person.count }} item(s) •
+                  <span class="text-success num-tabular">+₹{{ "%.2f"|format(person.credit_amount) }}</span> /
+                  <span class="text-danger num-tabular">-₹{{ "%.2f"|format(person.debit_amount) }}</span>
+                </div>
               </div>
             </div>
             <div class="d-flex align-items-center gap-2 flex-shrink-0">
@@ -106,12 +114,22 @@
             </div>
           </button>
         {% else %}
-          <div class="text-center text-muted small py-4">No pending bills for {{ current_month_label }}.</div>
+          <div class="text-center text-muted small py-4">No pending bills right now.</div>
         {% endfor %}
       </div>
-      <div class="modal-footer bg-light border-top d-flex justify-content-between align-items-center">
-        <span class="fw-bold small text-uppercase text-muted">Sum Total</span>
-        <span class="fw-bold fs-5 text-warning num-tabular">₹{{ "%.2f"|format(pending_amount) }}</span>
+      <div class="modal-footer bg-light border-top flex-column align-items-stretch gap-1">
+        <div class="d-flex justify-content-between align-items-center small">
+          <span class="text-muted">Pending Credit Total</span>
+          <span class="fw-semibold text-success num-tabular">+₹{{ "%.2f"|format(pending_credits) }}</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center small">
+          <span class="text-muted">Pending Debit Total</span>
+          <span class="fw-semibold text-danger num-tabular">-₹{{ "%.2f"|format(pending_debits) }}</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center pt-1 border-top">
+          <span class="fw-bold small text-uppercase text-muted">Sum Total</span>
+          <span class="fw-bold fs-5 text-warning num-tabular">₹{{ "%.2f"|format(pending_amount) }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -134,9 +152,19 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body pt-1" id="personPendingTransactionsList"></div>
-      <div class="modal-footer bg-light border-top d-flex justify-content-between align-items-center">
-        <span class="fw-bold small text-uppercase text-muted">Total</span>
-        <span class="fw-bold fs-5 text-warning num-tabular" id="personPendingModalTotal">₹0.00</span>
+      <div class="modal-footer bg-light border-top flex-column align-items-stretch gap-1">
+        <div class="d-flex justify-content-between align-items-center small">
+          <span class="text-muted">Pending Credit</span>
+          <span class="fw-semibold text-success num-tabular" id="personPendingModalCredit">+₹0.00</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center small">
+          <span class="text-muted">Pending Debit</span>
+          <span class="fw-semibold text-danger num-tabular" id="personPendingModalDebit">-₹0.00</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center pt-1 border-top">
+          <span class="fw-bold small text-uppercase text-muted">Sum Total</span>
+          <span class="fw-bold fs-5 text-warning num-tabular" id="personPendingModalTotal">₹0.00</span>
+        </div>
       </div>
     </div>
   </div>
@@ -146,7 +174,7 @@
 {% if is_cashier %}
   <div class="card p-3 mb-3 border-warning border-opacity-50">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h6 class="fw-bold mb-0"><i class="bi bi-shield-check text-warning me-1"></i>Pending Approvals ({{ current_month_label }})</h6>
+      <h6 class="fw-bold mb-0"><i class="bi bi-shield-check text-warning me-1"></i>Pending Approvals</h6>
       <span class="badge bg-warning text-dark rounded-pill num-tabular">{{ pending_claims|length }} • ₹{{ "%.2f"|format(pending_amount) }}</span>
     </div>
 
@@ -159,6 +187,7 @@
             <div class="d-flex gap-1 flex-wrap my-1">
               <span class="badge {{ 'bg-success' if is_dep else 'bg-danger' }} rounded-pill">{{ 'CREDIT' if is_dep else 'DEBIT' }}</span>
               <span class="badge bg-dark rounded-pill">{{ c.category }}</span>
+              <span class="badge bg-white text-muted border rounded-pill">{{ c.created_at.strftime('%d %b %Y') }}</span>
             </div>
             <div class="small text-muted">{{ c.remarks }}</div>
           </div>
@@ -178,7 +207,7 @@
         </div>
       </div>
     {% else %}
-      <p class="text-muted small mb-0">All caught up — no pending bills or deposits this month.</p>
+      <p class="text-muted small mb-0">All caught up — no pending bills or deposits.</p>
     {% endfor %}
   </div>
 
@@ -367,6 +396,8 @@
 
     document.getElementById('personPendingModalTitle').textContent = person.user_name + "'s Pending Bills";
     document.getElementById('personPendingModalSubtitle').textContent = person.count + ' pending transaction(s)';
+    document.getElementById('personPendingModalCredit').textContent = '+₹' + Number(person.credit_amount || 0).toFixed(2);
+    document.getElementById('personPendingModalDebit').textContent = '-₹' + Number(person.debit_amount || 0).toFixed(2);
     document.getElementById('personPendingModalTotal').textContent = '₹' + Number(person.total_amount).toFixed(2);
 
     const listEl = document.getElementById('personPendingTransactionsList');
