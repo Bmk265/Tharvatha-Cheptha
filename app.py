@@ -579,18 +579,25 @@ def dashboard():
 
     now = datetime.now()
     month_start = datetime(now.year, now.month, 1)
+    current_month_label = now.strftime('%B %Y')
 
     all_entries = PoolLedger.query.filter_by(team_id=team.id).all()
-    total_credits = sum(e.amount for e in all_entries if e.tx_type in ['opening', 'credit'])
-    total_debits = sum(e.amount for e in all_entries if e.tx_type == 'debit')
-    available_balance = total_credits - total_debits
 
-    month_entries = PoolLedger.query.filter(
-        PoolLedger.team_id == team.id,
-        PoolLedger.created_at >= month_start
-    ).all()
-    month_opening = sum(e.amount for e in month_entries if e.tx_type == 'opening')
+    # Carry-forward: Previous month's closing available balance becomes this month's starting opening balance
+    prior_entries = [e for e in all_entries if e.created_at < month_start]
+    prior_credits = sum(e.amount for e in prior_entries if e.tx_type in ['opening', 'credit'])
+    prior_debits = sum(e.amount for e in prior_entries if e.tx_type == 'debit')
+    carry_forward_opening = prior_credits - prior_debits
+
+    month_entries = [e for e in all_entries if e.created_at >= month_start]
+    explicit_month_opening = sum(e.amount for e in month_entries if e.tx_type == 'opening')
+    month_credits = sum(e.amount for e in month_entries if e.tx_type == 'credit')
     month_expenses = sum(e.amount for e in month_entries if e.tx_type == 'debit')
+
+    # Current month opening = last month ending available balance + any explicit opening added this month
+    month_opening = carry_forward_opening + explicit_month_opening
+    # Current month available balance = Month Opening + Current Month Credits - Current Month Expenses
+    available_balance = month_opening + month_credits - month_expenses
 
     category_totals = {cat: 0.0 for cat in EXPENSE_CATEGORIES}
     for e in month_entries:
@@ -600,7 +607,13 @@ def dashboard():
             else:
                 category_totals["Others (Specify)"] += e.amount
 
-    pending_claims = BillClaim.query.filter_by(team_id=team.id, status='pending').order_by(BillClaim.created_at.desc()).all()
+    # Current month bills (pending + approved + rejected in current month)
+    month_bills = BillClaim.query.filter(
+        BillClaim.team_id == team.id,
+        BillClaim.created_at >= month_start
+    ).order_by(BillClaim.created_at.desc()).all()
+
+    pending_claims = [c for c in month_bills if c.status == 'pending']
     pending_leave_requests = LeaveRequest.query.filter_by(team_id=team.id, status='pending').order_by(LeaveRequest.created_at.desc()).all()
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all()
     members = sorted([m.user for m in team_memberships if m.user], key=lambda u: u.name.lower())
@@ -612,13 +625,17 @@ def dashboard():
 
     return render_template(
         'dashboard.html',
+        current_month_label=current_month_label,
         available_balance=available_balance,
+        carry_forward_opening=carry_forward_opening,
         month_opening=month_opening,
+        month_credits=month_credits,
         month_expenses=month_expenses,
         category_totals=category_totals,
         categories=CATEGORIES,
         expense_categories=EXPENSE_CATEGORIES,
         pending_claims=pending_claims,
+        month_bills=month_bills,
         pending_leave_requests=pending_leave_requests,
         members=members,
         team_memberships=team_memberships,
@@ -799,12 +816,17 @@ def my_transactions():
 
     viewed_user = User.query.get_or_404(selected_user_id)
     viewed_membership = TeamMembership.query.filter_by(team_id=team.id, user_id=viewed_user.id).first()
-    viewed_balance = viewed_membership.personal_balance if viewed_membership else 0.0
 
     txs = PersonalTransaction.query.filter_by(
         team_id=team.id,
         user_id=viewed_user.id
     ).order_by(PersonalTransaction.created_at.desc()).all()
+
+    # Keep personal balance accurately synced with individual transactions
+    computed_balance = sum(t.amount if t.tx_type == 'credit' else -t.amount for t in txs)
+    if viewed_membership and round(viewed_membership.personal_balance, 2) != round(computed_balance, 2):
+        viewed_membership.personal_balance = computed_balance
+        db.session.commit()
 
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all() if (membership.role == 'cashier' or current_user.is_super_admin) else []
     members = [m.user for m in team_memberships if m.user]
@@ -812,10 +834,37 @@ def my_transactions():
     return render_template(
         'my_transactions.html',
         viewed_user=viewed_user,
-        viewed_balance=viewed_balance,
+        viewed_balance=computed_balance,
         transactions=txs,
         members=members
     )
+
+
+@app.route('/my-transactions/delete/<int:tx_id>', methods=['POST'])
+@login_required
+def delete_personal_transaction(tx_id):
+    team, _ = get_active_team_context()
+    if not team:
+        return redirect(url_for('profile'))
+
+    tx = PersonalTransaction.query.filter_by(id=tx_id, team_id=team.id).first_or_404()
+
+    # Allow individual owners to delete their own individual transactions (or Super Admin)
+    if tx.user_id != current_user.id and not current_user.is_super_admin:
+        flash("You can only delete your own individual transactions.", "danger")
+        return redirect(url_for('my_transactions'))
+
+    tm = TeamMembership.query.filter_by(team_id=team.id, user_id=tx.user_id).first()
+    if tm:
+        if tx.tx_type == 'credit':
+            tm.personal_balance -= tx.amount
+        else:
+            tm.personal_balance += tx.amount
+
+    db.session.delete(tx)
+    db.session.commit()
+    flash("Individual transaction deleted.", "info")
+    return redirect(url_for('my_transactions', user_id=tx.user_id if tx.user_id != current_user.id else None))
 
 
 @app.route('/all-transactions')
@@ -829,6 +878,7 @@ def all_transactions():
     month_filter = request.args.get('month', '')
     category_filter = request.args.get('category', '')
 
+    # Shows everything since team registration by default (chronological newest first)
     query = PoolLedger.query.filter_by(team_id=team.id)
     if person_filter:
         query = query.filter(PoolLedger.user_id == int(person_filter))
@@ -838,6 +888,9 @@ def all_transactions():
     entries = query.order_by(PoolLedger.created_at.desc()).all()
     if month_filter:
         entries = [e for e in entries if e.created_at.strftime('%Y-%m') == month_filter]
+
+    total_inflow = sum(e.amount for e in entries if e.tx_type in ['opening', 'credit'])
+    total_outflow = sum(e.amount for e in entries if e.tx_type == 'debit')
 
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all()
     members = sorted([m.user for m in team_memberships if m.user], key=lambda u: u.name.lower())
@@ -849,7 +902,9 @@ def all_transactions():
         categories=CATEGORIES,
         person_filter=person_filter,
         month_filter=month_filter,
-        category_filter=category_filter
+        category_filter=category_filter,
+        total_inflow=total_inflow,
+        total_outflow=total_outflow
     )
 
 
