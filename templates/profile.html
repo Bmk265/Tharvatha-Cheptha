@@ -76,12 +76,15 @@
   {% endfor %}
 </div>
 
-<!-- Active Team Members & Cashier Role Transfer -->
+<!-- Active Team Members & Cashier Delegation -->
 {% if active_team and team_memberships %}
 <div class="card p-3 mb-3">
-  <h6 class="fw-bold mb-2">Members in {{ active_team.name }}</h6>
+  <h6 class="fw-bold mb-1">Members & Cashier Access — {{ active_team.name }}</h6>
+  {% if is_cashier %}
+    <p class="text-muted small mb-2">Add a backup <strong>Co-Cashier</strong> if you're away, or transfer the role completely.</p>
+  {% endif %}
   {% for tm in team_memberships %}
-    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+    <div class="d-flex justify-content-between align-items-center py-2 border-bottom flex-wrap gap-2">
       <div class="d-flex align-items-center gap-2">
         {% if tm.user.avatar_path %}
           <img src="{{ url_for('static', filename=tm.user.avatar_path) }}" alt="{{ tm.user.name }}" class="avatar-circle avatar-sm">
@@ -91,10 +94,25 @@
         <span class="fw-semibold small">{{ tm.user.name }}</span>
         <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary-subtle text-dark' }} ms-1 rounded-pill">{{ tm.role }}</span>
       </div>
+
       {% if is_cashier and tm.user_id != current_user.id %}
-        <form method="POST" action="{{ url_for('transfer_cashier', user_id=tm.user_id) }}" class="m-0">
-          <button class="btn btn-sm btn-outline-warning rounded-pill">Make Cashier</button>
-        </form>
+        <div class="d-flex gap-1 flex-wrap">
+          {% if tm.role != 'cashier' %}
+            <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="m-0">
+              <input type="hidden" name="mode" value="co_cashier">
+              <button class="btn btn-sm btn-outline-success rounded-pill">Add Co-Cashier</button>
+            </form>
+            <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="m-0">
+              <input type="hidden" name="mode" value="transfer">
+              <button class="btn btn-sm btn-outline-warning rounded-pill">Transfer & Step Down</button>
+            </form>
+          {% else %}
+            <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="m-0">
+              <input type="hidden" name="mode" value="remove_cashier">
+              <button class="btn btn-sm btn-outline-secondary rounded-pill">Remove Cashier</button>
+            </form>
+          {% endif %}
+        </div>
       {% endif %}
     </div>
   {% endfor %}
