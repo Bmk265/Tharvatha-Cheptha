@@ -154,7 +154,7 @@ def ensure_schema_and_default_team():
             existing = {c['name'] for c in inspector.get_columns(tbl)}
             for col_name, col_type in cols:
                 if col_name not in existing:
-                    db.session.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_type}"))
+                    db.session.execute(text(f'ALTER TABLE "{tbl}" ADD COLUMN {col_name} {col_type}'))
     db.session.commit()
 
     # Ensure at least one team exists and attach existing users/records
