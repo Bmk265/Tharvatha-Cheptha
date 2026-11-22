@@ -35,14 +35,21 @@
     <span class="badge bg-light text-dark border rounded-pill">{{ entries|length }} entries</span>
   </div>
   {% for e in entries %}
-    <div class="d-flex justify-content-between align-items-start py-2 border-bottom">
-      <div>
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-          <span class="badge bg-dark rounded-pill">{{ e.category }}</span>
-          <span class="small fw-semibold">{{ e.user.name if e.user else 'Team Pool' }}</span>
+    <div class="d-flex justify-content-between align-items-start py-2 border-bottom gap-2">
+      <div class="d-flex align-items-start gap-2">
+        {% if e.user and e.user.avatar_path %}
+          <img src="{{ url_for('static', filename=e.user.avatar_path) }}" alt="{{ e.user.name }}" class="avatar-circle avatar-sm mt-1">
+        {% else %}
+          <span class="avatar-circle avatar-sm mt-1">{{ (e.user.name[:1]|upper) if e.user else 'P' }}</span>
+        {% endif %}
+        <div>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge bg-dark rounded-pill">{{ e.category }}</span>
+            <span class="small fw-semibold">{{ e.user.name if e.user else 'Team Pool' }}</span>
+          </div>
+          <div class="small text-muted mt-1">{{ e.remarks or '—' }}</div>
+          <div class="text-secondary" style="font-size: 0.72rem;">{{ e.created_at.strftime('%d %b %Y • %I:%M %p') }}</div>
         </div>
-        <div class="small text-muted mt-1">{{ e.remarks or '—' }}</div>
-        <div class="text-secondary" style="font-size: 0.72rem;">{{ e.created_at.strftime('%d %b %Y • %I:%M %p') }}</div>
       </div>
       <div class="text-end">
         <div class="fw-bold {{ 'text-danger' if e.tx_type == 'debit' else 'text-success' }}">
