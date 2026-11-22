@@ -51,22 +51,92 @@
   </div>
 </div>
 
-<!-- Approval Pending Amount Summary Card -->
-<div class="card p-3 mb-3 border-warning border-opacity-50">
-  <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+<!-- Tappable Pending Bills Card (Visible to All) -->
+<div class="card p-3 mb-3 border-warning border-opacity-50" role="button" tabindex="0" data-bs-toggle="modal" data-bs-target="#pendingByPersonModal" style="cursor: pointer;">
+  <div class="d-flex justify-content-between align-items-center gap-2">
     <div>
       <div class="text-uppercase small fw-semibold text-muted" style="font-size: 0.7rem; letter-spacing: 0.06em;">
-        <i class="bi bi-hourglass-split text-warning me-1"></i>Approval Pending Amount ({{ current_month_label }})
+        <i class="bi bi-hourglass-split text-warning me-1"></i>Pending Bills ({{ current_month_label }})
       </div>
       <div class="fw-bold fs-4 text-warning num-tabular mt-1">₹{{ "%.2f"|format(pending_amount) }}</div>
       <div class="text-muted" style="font-size: 0.74rem;">
-        {{ pending_claims|length }} pending item(s) • Deposits: <span class="text-success fw-semibold num-tabular">+₹{{ "%.2f"|format(pending_credits) }}</span> • Bills: <span class="text-danger fw-semibold num-tabular">-₹{{ "%.2f"|format(pending_debits) }}</span>
+        {{ pending_claims|length }} pending bill(s) across {{ pending_by_user|length }} member(s) • <span class="text-primary fw-semibold">Tap to view breakdown</span>
       </div>
     </div>
-    <div class="text-sm-end bg-light border rounded-3 px-3 py-2">
-      <div class="text-muted" style="font-size: 0.68rem;">AFTER PENDING APPROVALS</div>
-      <div class="fw-bold small num-tabular {{ 'text-success' if projected_balance >= 0 else 'text-danger' }}">
-        ₹{{ "%.2f"|format(projected_balance) }}
+    <div class="d-flex align-items-center gap-2">
+      <div class="text-end bg-light border rounded-3 px-2 py-1 d-none d-sm-block">
+        <div class="text-muted" style="font-size: 0.62rem;">NET AFTER APPROVAL</div>
+        <div class="fw-bold small num-tabular {{ 'text-success' if projected_balance >= 0 else 'text-danger' }}">
+          ₹{{ "%.2f"|format(projected_balance) }}
+        </div>
+      </div>
+      <span class="btn btn-sm btn-warning text-dark rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 34px; height: 34px;">
+        <i class="bi bi-chevron-right"></i>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Popup 1: Individual Person Pending Bills -->
+<div class="modal fade" id="pendingByPersonModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-0 rounded-4">
+      <div class="modal-header border-0 pb-2">
+        <div>
+          <h6 class="modal-title fw-bold mb-0"><i class="bi bi-people-fill text-warning me-1"></i>Pending Bills by Member</h6>
+          <small class="text-muted">Tap a person to inspect their pending transactions</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-1">
+        {% for person in pending_by_user %}
+          <button type="button"
+                  class="w-100 text-start border rounded-4 p-3 mb-2 bg-light d-flex justify-content-between align-items-center gap-2 btn btn-light"
+                  onclick="openPersonPendingModal({{ person.user_id }})">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+              <span class="avatar-circle avatar-sm">{{ person.user_name[:1]|upper }}</span>
+              <div class="min-w-0">
+                <div class="fw-bold small text-dark text-truncate">{{ person.user_name }}</div>
+                <div class="text-muted" style="font-size: 0.72rem;">{{ person.count }} pending item(s)</div>
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-shrink-0">
+              <span class="fw-bold small text-warning num-tabular">₹{{ "%.2f"|format(person.total_amount) }}</span>
+              <i class="bi bi-chevron-right text-muted small"></i>
+            </div>
+          </button>
+        {% else %}
+          <div class="text-center text-muted small py-4">No pending bills for {{ current_month_label }}.</div>
+        {% endfor %}
+      </div>
+      <div class="modal-footer bg-light border-top d-flex justify-content-between align-items-center">
+        <span class="fw-bold small text-uppercase text-muted">Sum Total</span>
+        <span class="fw-bold fs-5 text-warning num-tabular">₹{{ "%.2f"|format(pending_amount) }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Popup 2: Individual Person's Pending Transactions -->
+<div class="modal fade" id="personPendingDetailsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-0 rounded-4">
+      <div class="modal-header border-0 pb-2">
+        <div class="d-flex align-items-center gap-2">
+          <button type="button" class="btn btn-sm btn-light border rounded-pill px-2" onclick="backToPendingByPersonModal()" title="Back to members list">
+            <i class="bi bi-arrow-left"></i>
+          </button>
+          <div>
+            <h6 class="modal-title fw-bold mb-0" id="personPendingModalTitle">Pending Transactions</h6>
+            <small class="text-muted" id="personPendingModalSubtitle">Individual pending items</small>
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-1" id="personPendingTransactionsList"></div>
+      <div class="modal-footer bg-light border-top d-flex justify-content-between align-items-center">
+        <span class="fw-bold small text-uppercase text-muted">Total</span>
+        <span class="fw-bold fs-5 text-warning num-tabular" id="personPendingModalTotal">₹0.00</span>
       </div>
     </div>
   </div>
@@ -279,4 +349,69 @@
   {% endfor %}
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PENDING_BY_USER = {{ pending_by_user | tojson }};
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  function openPersonPendingModal(userId) {
+    const person = PENDING_BY_USER.find(p => p.user_id === userId);
+    if (!person) return;
+
+    document.getElementById('personPendingModalTitle').textContent = person.user_name + "'s Pending Bills";
+    document.getElementById('personPendingModalSubtitle').textContent = person.count + ' pending transaction(s)';
+    document.getElementById('personPendingModalTotal').textContent = '₹' + Number(person.total_amount).toFixed(2);
+
+    const listEl = document.getElementById('personPendingTransactionsList');
+    listEl.innerHTML = person.items.map(item => {
+      const badgeClass = item.is_deposit ? 'bg-success' : 'bg-danger';
+      const badgeText = item.is_deposit ? 'CREDIT' : 'DEBIT';
+      const amtClass = item.is_deposit ? 'text-success' : 'text-danger';
+      const sign = item.is_deposit ? '+' : '-';
+      return `
+        <div class="border rounded-4 p-3 mb-2 bg-light d-flex justify-content-between align-items-start gap-2">
+          <div class="min-w-0">
+            <div class="d-flex align-items-center gap-1 flex-wrap mb-1">
+              <span class="badge ${badgeClass} rounded-pill" style="font-size: 0.62rem;">${badgeText}</span>
+              <span class="fw-bold small text-dark">${escapeHtml(item.category)}</span>
+            </div>
+            <div class="small text-secondary">${escapeHtml(item.remarks)}</div>
+            <div class="text-muted mt-1" style="font-size: 0.68rem;">${escapeHtml(item.date)}</div>
+          </div>
+          <div class="fw-bold small num-tabular flex-shrink-0 ${amtClass}">
+            ${sign}₹${Number(item.amount).toFixed(2)}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const firstModalEl = document.getElementById('pendingByPersonModal');
+    const firstModal = bootstrap.Modal.getInstance(firstModalEl);
+    if (firstModal) {
+      firstModal.hide();
+    }
+
+    const secondModalEl = document.getElementById('personPendingDetailsModal');
+    const secondModal = bootstrap.Modal.getOrCreateInstance(secondModalEl);
+    secondModal.show();
+  }
+
+  function backToPendingByPersonModal() {
+    const secondModalEl = document.getElementById('personPendingDetailsModal');
+    const secondModal = bootstrap.Modal.getInstance(secondModalEl);
+    if (secondModal) {
+      secondModal.hide();
+    }
+    const firstModalEl = document.getElementById('pendingByPersonModal');
+    const firstModal = bootstrap.Modal.getOrCreateInstance(firstModalEl);
+    firstModal.show();
+  }
+</script>
 {% endblock %}
