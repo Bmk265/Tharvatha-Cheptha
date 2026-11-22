@@ -739,29 +739,40 @@ def dashboard():
         BillClaim.created_at >= month_start
     ).order_by(BillClaim.created_at.desc()).all()
 
-    pending_claims = [c for c in month_bills if c.status == 'pending']
-    pending_amount = sum(c.amount for c in pending_claims)
+    pending_claims = BillClaim.query.filter_by(
+        team_id=team.id,
+        status='pending'
+    ).order_by(BillClaim.created_at.desc()).all()
+
     pending_credits = sum(c.amount for c in pending_claims if c.category == "Monthly Deposit")
     pending_debits = sum(c.amount for c in pending_claims if c.category != "Monthly Deposit")
+    pending_amount = pending_credits + pending_debits
     projected_balance = available_balance + pending_credits - pending_debits
 
     pending_by_user_map = {}
     for c in pending_claims:
         uid = c.user_id
+        is_dep = (c.category == "Monthly Deposit")
         if uid not in pending_by_user_map:
             pending_by_user_map[uid] = {
                 'user_id': uid,
                 'user_name': c.user.name if c.user else 'Unknown',
                 'total_amount': 0.0,
+                'credit_amount': 0.0,
+                'debit_amount': 0.0,
                 'count': 0,
                 'items': []
             }
         pending_by_user_map[uid]['total_amount'] += c.amount
+        if is_dep:
+            pending_by_user_map[uid]['credit_amount'] += c.amount
+        else:
+            pending_by_user_map[uid]['debit_amount'] += c.amount
         pending_by_user_map[uid]['count'] += 1
         pending_by_user_map[uid]['items'].append({
             'id': c.id,
             'category': c.category,
-            'is_deposit': (c.category == "Monthly Deposit"),
+            'is_deposit': is_dep,
             'amount': c.amount,
             'remarks': c.remarks,
             'date': c.created_at.strftime('%d %b %Y, %I:%M %p')
@@ -922,6 +933,7 @@ def process_claim(claim_id, action):
         return redirect(url_for('dashboard'))
 
     team_name = claim.team.name if getattr(claim, 'team', None) else 'TEAM POOL'
+    approval_time = datetime.now()
 
     if action == 'approve':
         claim.status = 'approved'
@@ -934,7 +946,8 @@ def process_claim(claim_id, action):
             amount=claim.amount,
             category=claim.category,
             remarks=f"Approved ({ledger_type.upper()}) [{claim.user.name}]: {claim.remarks}",
-            user_id=claim.user_id
+            user_id=claim.user_id,
+            created_at=approval_time
         )
         db.session.add(pool_entry)
 
@@ -951,7 +964,8 @@ def process_claim(claim_id, action):
             tx_type=ledger_type,
             amount=claim.amount,
             category=claim.category,
-            remarks=f"Approved ({ledger_type.upper()}): {claim.remarks}"
+            remarks=f"Approved ({ledger_type.upper()}): {claim.remarks}",
+            created_at=approval_time
         )
         db.session.add(personal_entry)
 
