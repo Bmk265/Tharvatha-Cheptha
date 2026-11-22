@@ -16,35 +16,40 @@
       <i class="bi bi-chat-dots text-primary me-1"></i>Chat
     </a>
     <a href="{{ url_for('all_transactions') }}" class="btn btn-sm btn-dark rounded-pill px-3 shadow-sm">
-      <i class="bi bi-journal-text me-1"></i>Full Ledger
+      <i class="bi bi-journal-text me-1"></i>All Transactions
     </a>
   </div>
 </div>
 
-<!-- Executive Treasury Balance Card -->
+<!-- Executive Treasury Balance Card (Current Month) -->
 <div class="hero-ledger-card p-4 mb-3">
   <div class="d-flex justify-content-between align-items-center mb-1">
-    <span class="text-uppercase small fw-semibold" style="color: #94a3b8; letter-spacing: 0.08em;">Available Pool Balance</span>
-    <span class="badge rounded-pill" style="background: rgba(56, 189, 248, 0.18); color: #7dd3fc;">Virtual Record</span>
+    <span class="text-uppercase small fw-semibold" style="color: #94a3b8; letter-spacing: 0.08em;">Available Balance ({{ current_month_label }})</span>
+    <span class="badge rounded-pill" style="background: rgba(56, 189, 248, 0.18); color: #7dd3fc;">Carry-Forward Active</span>
   </div>
   <h1 class="fw-bold display-6 my-1 num-tabular">₹{{ "%.2f"|format(available_balance) }}</h1>
   <div class="row g-2 mt-3 pt-3 border-top border-secondary border-opacity-50 small">
-    <div class="col-6">
-      <div style="color: #94a3b8; font-size: 0.72rem;">MONTH OPENING</div>
+    <div class="col-4">
+      <div style="color: #94a3b8; font-size: 0.68rem;">MONTH OPENING</div>
       <div class="fw-semibold text-white num-tabular">₹{{ "%.2f"|format(month_opening) }}</div>
+      <div style="color: #64748b; font-size: 0.62rem;">Prev Bal: ₹{{ "%.2f"|format(carry_forward_opening) }}</div>
     </div>
-    <div class="col-6 text-end">
-      <div style="color: #94a3b8; font-size: 0.72rem;">MONTH EXPENSES</div>
-      <div class="fw-semibold text-warning num-tabular">₹{{ "%.2f"|format(month_expenses) }}</div>
+    <div class="col-4 text-center">
+      <div style="color: #94a3b8; font-size: 0.68rem;">MONTH CREDITS</div>
+      <div class="fw-semibold text-info num-tabular">+₹{{ "%.2f"|format(month_credits) }}</div>
+    </div>
+    <div class="col-4 text-end">
+      <div style="color: #94a3b8; font-size: 0.68rem;">MONTH EXPENSES</div>
+      <div class="fw-semibold text-warning num-tabular">-₹{{ "%.2f"|format(month_expenses) }}</div>
     </div>
   </div>
 </div>
 
-<!-- Cashier (Admin) Approvals: Bills & Leave Requests -->
+<!-- Cashier (Admin) Approvals: Pending Bills & Leave Requests -->
 {% if is_cashier %}
   <div class="card p-3 mb-3 border-warning border-opacity-50">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h6 class="fw-bold mb-0"><i class="bi bi-shield-check text-warning me-1"></i>Pending Approvals</h6>
+      <h6 class="fw-bold mb-0"><i class="bi bi-shield-check text-warning me-1"></i>Pending Approvals ({{ current_month_label }})</h6>
       <span class="badge bg-warning text-dark rounded-pill">{{ pending_claims|length }}</span>
     </div>
 
@@ -76,7 +81,7 @@
         </div>
       </div>
     {% else %}
-      <p class="text-muted small mb-0">All caught up — no pending bills or deposits.</p>
+      <p class="text-muted small mb-0">All caught up — no pending bills or deposits this month.</p>
     {% endfor %}
   </div>
 
@@ -106,11 +111,11 @@
   {% endif %}
 {% endif %}
 
-<!-- Responsive Category Expense Matrix -->
+<!-- Responsive Category Expense Matrix (Current Month) -->
 <div class="card p-3 mb-3">
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h6 class="fw-bold mb-0">Monthly Expense Breakdown</h6>
-    <span class="small text-muted">Current Month</span>
+    <span class="small text-muted">{{ current_month_label }}</span>
   </div>
   <div class="row g-2">
     {% for cat in expense_categories %}
@@ -131,7 +136,7 @@
   <form method="POST" action="{{ url_for('cashier_transaction') }}" class="row g-2">
     <div class="col-6">
       <select name="tx_type" class="form-select form-select-sm" required>
-        <option value="opening">Opening Balance</option>
+        <option value="opening">Opening Adjustment (+)</option>
         <option value="credit">Credit (+ Add)</option>
         <option value="debit">Debit (- Expense)</option>
       </select>
@@ -192,6 +197,31 @@
   </form>
 </div>
 {% endif %}
+
+<!-- All Bills Submitted in Current Month -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="fw-bold mb-0"><i class="bi bi-receipt text-primary me-1"></i>All Bills ({{ current_month_label }})</h6>
+    <span class="badge bg-light text-dark border rounded-pill">{{ month_bills|length }}</span>
+  </div>
+  {% for b in month_bills %}
+    {% set is_dep = (b.category == "Monthly Deposit") %}
+    <div class="d-flex justify-content-between align-items-center py-2 border-bottom gap-2">
+      <div class="min-w-0">
+        <div class="fw-semibold small text-truncate">
+          {{ b.user.name }} • {{ b.category }}
+          <span class="badge {{ 'bg-success' if b.status == 'approved' else ('bg-warning text-dark' if b.status == 'pending' else 'bg-secondary') }} rounded-pill ms-1" style="font-size: 0.64rem;">{{ b.status|upper }}</span>
+        </div>
+        <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ b.remarks }} • {{ b.created_at.strftime('%d %b %Y') }}</div>
+      </div>
+      <div class="fw-bold small num-tabular flex-shrink-0 {{ 'text-success' if is_dep else 'text-danger' }}">
+        {{ '+' if is_dep else '-' }}₹{{ "%.2f"|format(b.amount) }}
+      </div>
+    </div>
+  {% else %}
+    <p class="text-muted small mb-0">No bills submitted in {{ current_month_label }} yet.</p>
+  {% endfor %}
+</div>
 
 <!-- Super Admin: Global Audit & Deletion Controls -->
 {% if is_super_admin %}
