@@ -1,36 +1,87 @@
 {% extends "base.html" %}
 {% block content %}
+<!-- Account & Virtual Record Notice -->
 <div class="card p-3 mb-3">
-  <h5 class="fw-bold">Profile Management</h5>
-  <p class="text-muted small mb-2">Role: <strong>{{ current_user.role|upper }}</strong> | Email: {{ current_user.email }}</p>
+  <div class="d-flex justify-content-between align-items-start">
+    <div>
+      <h5 class="fw-bold mb-1">{{ current_user.name }}</h5>
+      <div class="small text-muted">{{ current_user.email }}</div>
+    </div>
+    <span class="badge bg-primary rounded-pill">{{ active_membership.role|upper }}</span>
+  </div>
+  <div class="alert alert-info py-2 px-3 small mt-3 mb-0 rounded-3">
+    <strong>Virtual Records Only:</strong> All balances, deposits, and bills in TeamPool are record-keeping figures and cannot be withdrawn or transferred as real money.
+  </div>
+</div>
+
+<!-- Multi-Team Management -->
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-2"><i class="bi bi-people me-1 text-primary"></i>Teams ({{ user_teams|length }})</h6>
+  <p class="small text-muted mb-2">Active Team Invite Code: <strong>{{ active_team.invite_code }}</strong></p>
+
+  <form method="POST" action="{{ url_for('switch_team') }}" class="d-flex gap-2 mb-3">
+    <select name="team_id" class="form-select form-select-sm">
+      {% for t in user_teams %}
+        <option value="{{ t.id }}" {{ 'selected' if t.id == active_team.id else '' }}>{{ t.name }} ({{ t.invite_code }})</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-primary rounded-pill px-3">Switch</button>
+  </form>
+
+  <div class="row g-2">
+    <div class="col-md-6">
+      <form method="POST" action="{{ url_for('create_team') }}" class="bg-light p-2 rounded-3">
+        <div class="small fw-bold mb-1">Create New Team</div>
+        <input type="text" name="team_name" class="form-control form-control-sm mb-1" placeholder="Team name" required>
+        <input type="text" name="team_city" class="form-control form-control-sm mb-2" placeholder="City (optional)">
+        <button class="btn btn-sm btn-primary w-100 rounded-pill">Create Team</button>
+      </form>
+    </div>
+    <div class="col-md-6">
+      <form method="POST" action="{{ url_for('join_team') }}" class="bg-light p-2 rounded-3 h-100 d-flex flex-column justify-content-between">
+        <div>
+          <div class="small fw-bold mb-1">Join Team by Code</div>
+          <input type="text" name="invite_code" class="form-control form-control-sm text-uppercase mb-2" placeholder="Invite code" required>
+        </div>
+        <button class="btn btn-sm btn-success w-100 rounded-pill">Join Team</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Team Members & Cashier Role Transfer -->
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-2">Members in {{ active_team.name }}</h6>
+  {% for tm in team_memberships %}
+    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+      <div>
+        <span class="fw-semibold small">{{ tm.user.name }}</span>
+        <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary-subtle text-dark' }} ms-1 rounded-pill">{{ tm.role }}</span>
+      </div>
+      {% if is_cashier and tm.user_id != current_user.id %}
+        <form method="POST" action="{{ url_for('transfer_cashier', user_id=tm.user_id) }}" class="m-0">
+          <button class="btn btn-sm btn-outline-warning rounded-pill">Make Cashier</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Edit Profile -->
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-2">Account Settings</h6>
   <form method="POST">
     <div class="mb-2">
-      <label class="form-label">Display Name</label>
-      <input type="text" name="name" value="{{ current_user.name }}" class="form-control" required>
+      <label class="form-label small">Display Name</label>
+      <input type="text" name="name" value="{{ current_user.name }}" class="form-control form-control-sm" required>
     </div>
     <div class="mb-3">
-      <label class="form-label">New Password (leave blank to keep current)</label>
-      <input type="password" name="new_password" class="form-control">
+      <label class="form-label small">New Password (optional)</label>
+      <input type="password" name="new_password" class="form-control form-control-sm" placeholder="Leave blank to keep current">
     </div>
-    <button class="btn btn-primary w-100">Save Changes</button>
+    <button class="btn btn-dark btn-sm w-100 rounded-pill py-2">Save Profile</button>
   </form>
 </div>
 
-{% if current_user.role == 'cashier' and members|length > 1 %}
-<div class="card p-3 mb-3">
-  <h6 class="fw-bold">Transfer Cashier Role</h6>
-  {% for m in members %}
-    {% if m.id != current_user.id %}
-    <div class="d-flex justify-content-between align-items-center border-bottom py-2">
-      <span>{{ m.name }}</span>
-      <form method="POST" action="{{ url_for('transfer_cashier', user_id=m.id) }}">
-        <button class="btn btn-sm btn-outline-warning">Make Cashier</button>
-      </form>
-    </div>
-    {% endif %}
-  {% endfor %}
-</div>
-{% endif %}
-
-<a href="{{ url_for('logout') }}" class="btn btn-danger w-100">Logout</a>
+<a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2">Logout</a>
 {% endblock %}
