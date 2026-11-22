@@ -740,6 +740,11 @@ def dashboard():
     ).order_by(BillClaim.created_at.desc()).all()
 
     pending_claims = [c for c in month_bills if c.status == 'pending']
+    pending_amount = sum(c.amount for c in pending_claims)
+    pending_credits = sum(c.amount for c in pending_claims if c.category == "Monthly Deposit")
+    pending_debits = sum(c.amount for c in pending_claims if c.category != "Monthly Deposit")
+    projected_balance = available_balance + pending_credits - pending_debits
+
     pending_leave_requests = LeaveRequest.query.filter_by(team_id=team.id, status='pending').order_by(LeaveRequest.created_at.desc()).all()
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all()
     members = sorted([m.user for m in team_memberships if m.user], key=lambda u: u.name.lower())
@@ -761,6 +766,10 @@ def dashboard():
         categories=CATEGORIES,
         expense_categories=EXPENSE_CATEGORIES,
         pending_claims=pending_claims,
+        pending_amount=pending_amount,
+        pending_credits=pending_credits,
+        pending_debits=pending_debits,
+        projected_balance=projected_balance,
         month_bills=month_bills,
         pending_leave_requests=pending_leave_requests,
         members=members,
