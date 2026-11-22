@@ -2,6 +2,7 @@ import os
 import uuid
 from datetime import datetime
 from functools import wraps
+from urllib.parse import urlparse, urljoin
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -31,12 +32,27 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
 CATEGORIES = [
-    "Monthly Deposit (Per Person)",
-    "Expenses",
-    "Room Rent",
-    "Outside Shopping",
-    "Outside Food"
+    "Monthly Deposit",
+    "Vegetables",
+    "Monthly Shopping",
+    "Petrol",
+    "Rice Bag",
+    "Oil",
+    "Chicken",
+    "Curd",
+    "Masala",
+    "Water",
+    "Outing Expenses",
+    "Others (Specify)"
 ]
+
+EXPENSE_CATEGORIES = [c for c in CATEGORIES if c != "Monthly Deposit"]
+
+
+def _is_safe_url(target):
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return test_url.scheme in ('http', 'https') and ref_url.netloc == test_url.netloc
 
 
 def _allowed_image(filename):
@@ -55,6 +71,15 @@ def _save_uploaded_image(file_storage):
     save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
     file_storage.save(save_path)
     return f"uploads/{unique_name}"
+
+
+def _format_category_and_remarks(category, custom_specify, remarks):
+    spec = (custom_specify or '').strip()
+    rem = (remarks or '').strip()
+    if category == "Others (Specify)" and spec:
+        combined = f"[{spec}] {rem}".strip() if rem else spec
+        return category, combined
+    return category, rem
 
 
 # ---------------- MODELS ----------------
@@ -219,7 +244,6 @@ def ensure_schema_and_default_team():
                     db.session.execute(text(f'ALTER TABLE "{tbl}" ADD COLUMN {col_name} {col_type}'))
     db.session.commit()
 
-    # Ensure first user in the system is Super Admin if none exists
     if User.query.count() > 0 and not User.query.filter_by(is_super_admin=True).first():
         first_user = User.query.order_by(User.id.asc()).first()
         if first_user:
@@ -255,14 +279,18 @@ def inject_globals():
             'active_membership': membership,
             'user_teams': [m.team for m in all_memberships if m.team],
             'is_cashier': ((membership.role == 'cashier') if membership else False) or is_super,
-            'is_super_admin': is_super
+            'is_super_admin': is_super,
+            'global_categories': CATEGORIES,
+            'global_expense_categories': EXPENSE_CATEGORIES
         }
     return {
         'active_team': None,
         'active_membership': None,
         'user_teams': [],
         'is_cashier': False,
-        'is_super_admin': False
+        'is_super_admin': False,
+        'global_categories': CATEGORIES,
+        'global_expense_categories': EXPENSE_CATEGORIES
     }
 
 
@@ -274,7 +302,7 @@ def team_and_cashier_required(f):
         if is_super:
             return f(*args, **kwargs)
         if not team or not membership:
-            flash("Join or create a team first from your Profile.", "warning")
+            flash("Create a team or open an invite link from your Profile first.", "warning")
             return redirect(url_for('profile'))
         if membership.role != 'cashier':
             flash("Only a Cashier of this team can perform this action.", "danger")
@@ -359,10 +387,11 @@ def register():
         db.session.add(user)
         db.session.commit()
         if is_first_user:
-            flash("Account created! As the first user, you are assigned SUPER ADMIN.", "success")
+            flash("Account created! You are registered as SUPER ADMIN.", "success")
         else:
-            flash("Account created! Please log in, then create a team or join via an invite link.", "success")
-        return redirect(url_for('login'))
+            flash("Account created! Please sign in to continue.", "success")
+        next_url = request.args.get('next')
+        return redirect(url_for('login', next=next_url) if next_url else url_for('login'))
 
     return render_template('register.html')
 
@@ -375,9 +404,12 @@ def login():
         user = User.query.filter_by(email=email).first()
         if user and check_password_hash(user.password_hash, password):
             login_user(user)
+            next_url = request.args.get('next')
+            if next_url and _is_safe_url(next_url):
+                return redirect(next_url)
             team, _ = get_active_team_context()
             if not team:
-                flash("Logged in! Create a team or join using a team invite link from your Profile.", "info")
+                flash("Signed in! Create a team or open an invite link to join.", "info")
                 return redirect(url_for('profile'))
             return redirect(url_for('dashboard'))
         flash("Invalid email or password.", "danger")
@@ -401,7 +433,7 @@ def switch_team():
         current_user.active_team_id = team_id
         current_user.role = membership.role
         db.session.commit()
-        flash(f"Switched to team '{membership.team.name}'.", "info")
+        flash(f"Switched workspace to '{membership.team.name}'.", "info")
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -432,7 +464,7 @@ def create_team():
     current_user.active_team_id = team.id
     current_user.role = 'cashier'
     db.session.commit()
-    flash(f"Created team '{team.name}'! Share its invite link from Profile to invite members.", "success")
+    flash(f"Workspace '{team.name}' created! Share its invite link from Profile.", "success")
     return redirect(url_for('dashboard'))
 
 
@@ -454,7 +486,7 @@ def join_via_invite_link(code):
         ))
     current_user.active_team_id = team.id
     db.session.commit()
-    flash(f"Joined team '{team.name}' via invite link!", "success")
+    flash(f"Joined '{team.name}' via invite link!", "success")
     return redirect(url_for('dashboard'))
 
 
@@ -496,7 +528,7 @@ def leave_team():
 
     existing_req = LeaveRequest.query.filter_by(team_id=team_id, user_id=current_user.id, status='pending').first()
     if existing_req:
-        flash("Your request to leave this team is already pending Cashier approval.", "info")
+        flash("Your exit request is already pending Cashier approval.", "info")
         return redirect(url_for('profile'))
 
     db.session.add(LeaveRequest(
@@ -505,7 +537,7 @@ def leave_team():
         reason=reason or "Requested to leave team"
     ))
     db.session.commit()
-    flash(f"Leave request submitted for '{team.name}'. Waiting for Cashier approval.", "info")
+    flash(f"Exit request submitted for '{team.name}'. Awaiting Cashier approval.", "info")
     return redirect(url_for('profile'))
 
 
@@ -522,10 +554,10 @@ def process_leave_request(req_id, action):
     if action == 'approve':
         leave_req.status = 'approved'
         _remove_member_from_team(team.id, leave_req.user_id)
-        flash(f"Approved leave request for {leave_req.user.name}.", "success")
+        flash(f"Approved exit request for {leave_req.user.name}.", "success")
     elif action == 'reject':
         leave_req.status = 'rejected'
-        flash(f"Rejected leave request for {leave_req.user.name}.", "secondary")
+        flash(f"Rejected exit request for {leave_req.user.name}.", "secondary")
 
     db.session.commit()
     return redirect(url_for('dashboard'))
@@ -554,10 +586,13 @@ def dashboard():
     month_opening = sum(e.amount for e in month_entries if e.tx_type == 'opening')
     month_expenses = sum(e.amount for e in month_entries if e.tx_type == 'debit')
 
-    category_totals = {cat: 0.0 for cat in CATEGORIES}
+    category_totals = {cat: 0.0 for cat in EXPENSE_CATEGORIES}
     for e in month_entries:
-        if e.tx_type == 'debit' and e.category in category_totals:
-            category_totals[e.category] += e.amount
+        if e.tx_type == 'debit':
+            if e.category in category_totals:
+                category_totals[e.category] += e.amount
+            else:
+                category_totals["Others (Specify)"] += e.amount
 
     pending_claims = BillClaim.query.filter_by(team_id=team.id, status='pending').order_by(BillClaim.created_at.desc()).all()
     pending_leave_requests = LeaveRequest.query.filter_by(team_id=team.id, status='pending').order_by(LeaveRequest.created_at.desc()).all()
@@ -576,6 +611,7 @@ def dashboard():
         month_expenses=month_expenses,
         category_totals=category_totals,
         categories=CATEGORIES,
+        expense_categories=EXPENSE_CATEGORIES,
         pending_claims=pending_claims,
         pending_leave_requests=pending_leave_requests,
         members=members,
@@ -594,8 +630,11 @@ def cashier_transaction():
     team, _ = get_active_team_context()
     tx_type = request.form['tx_type']
     amount = float(request.form['amount'])
-    category = request.form['category']
-    remarks = request.form.get('remarks', '').strip()
+    category, remarks = _format_category_and_remarks(
+        request.form['category'],
+        request.form.get('custom_category', ''),
+        request.form.get('remarks', '')
+    )
     target_user_id = request.form.get('user_id') or None
 
     if amount <= 0:
@@ -633,7 +672,7 @@ def cashier_transaction():
             ))
 
     db.session.commit()
-    flash("Pool balance updated successfully.", "success")
+    flash("Ledger entry recorded successfully.", "success")
     return redirect(url_for('dashboard'))
 
 
@@ -646,8 +685,11 @@ def submit_claim():
         return redirect(url_for('profile'))
 
     amount = float(request.form['amount'])
-    category = request.form['category']
-    remarks = request.form['remarks'].strip()
+    category, remarks = _format_category_and_remarks(
+        request.form['category'],
+        request.form.get('custom_category', ''),
+        request.form.get('remarks', '')
+    )
 
     if amount <= 0:
         flash("Amount must be greater than 0.", "warning")
@@ -658,11 +700,11 @@ def submit_claim():
         user_id=current_user.id,
         amount=amount,
         category=category,
-        remarks=remarks
+        remarks=remarks or category
     )
     db.session.add(claim)
     db.session.commit()
-    flash("Bill submitted to Cashier for approval.", "info")
+    flash("Submitted to Cashier for approval.", "info")
     return redirect(url_for('dashboard'))
 
 
@@ -677,7 +719,7 @@ def process_claim(claim_id, action):
 
     if action == 'approve':
         claim.status = 'approved'
-        is_deposit = (claim.category == "Monthly Deposit (Per Person)")
+        is_deposit = (claim.category == "Monthly Deposit")
         ledger_type = 'credit' if is_deposit else 'debit'
 
         pool_entry = PoolLedger(
@@ -703,7 +745,7 @@ def process_claim(claim_id, action):
             tx_type=ledger_type,
             amount=claim.amount,
             category=claim.category,
-            remarks=f"Bill Approved ({ledger_type.upper()}): {claim.remarks}"
+            remarks=f"Approved ({ledger_type.upper()}): {claim.remarks}"
         )
         db.session.add(personal_entry)
         flash(f"Approved ₹{claim.amount:.2f} as {ledger_type.upper()} for {claim.user.name}.", "success")
@@ -758,7 +800,7 @@ def my_transactions():
         user_id=viewed_user.id
     ).order_by(PersonalTransaction.created_at.desc()).all()
 
-    team_memberships = TeamMembership.query.filter_by(team_id=team.id).all() if membership.role == 'cashier' else []
+    team_memberships = TeamMembership.query.filter_by(team_id=team.id).all() if (membership.role == 'cashier' or current_user.is_super_admin) else []
     members = [m.user for m in team_memberships if m.user]
 
     return render_template(
@@ -852,7 +894,7 @@ def feed():
                     db.session.add(PollOption(post_id=post.id, option_text=opt_text))
 
             db.session.commit()
-            flash("Posted to team feed!", "success")
+            flash("Published to team feed!", "success")
         return redirect(url_for('feed'))
 
     posts = FeedPost.query.filter_by(team_id=team.id).order_by(FeedPost.created_at.desc()).all()
