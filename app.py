@@ -78,6 +78,17 @@ class TeamMembership(db.Model):
     user = db.relationship('User', backref='memberships')
 
 
+class LeaveRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    reason = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(20), default='pending')  # 'pending', 'approved', 'rejected'
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    team = db.relationship('Team', backref=db.backref('leave_requests', cascade='all, delete-orphan'))
+    user = db.relationship('User', backref='leave_requests')
+
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -264,6 +275,30 @@ def _unique_invite_code(base_name):
     return code
 
 
+def _remove_member_from_team(team_id, user_id):
+    membership = TeamMembership.query.filter_by(team_id=team_id, user_id=user_id).first()
+    if not membership:
+        return None
+    team = membership.team
+    db.session.delete(membership)
+    db.session.flush()
+
+    remaining = TeamMembership.query.filter_by(team_id=team_id).order_by(TeamMembership.id.asc()).all()
+    if remaining and not any(m.role == 'cashier' for m in remaining):
+        remaining[0].role = 'cashier'
+        if remaining[0].user:
+            remaining[0].user.role = 'cashier'
+    elif not remaining and team:
+        db.session.delete(team)
+
+    user_obj = User.query.get(user_id)
+    if user_obj and user_obj.active_team_id == team_id:
+        next_m = TeamMembership.query.filter_by(user_id=user_id).first()
+        user_obj.active_team_id = next_m.team_id if next_m else None
+        user_obj.role = next_m.role if next_m else 'member'
+    return team
+
+
 # ---------------- PWA ROUTES ----------------
 @app.route('/manifest.json')
 def manifest():
@@ -397,31 +432,77 @@ def join_team():
 @login_required
 def leave_team():
     team_id = int(request.form.get('team_id') or (current_user.active_team_id or 0))
+    confirm_step_1 = request.form.get('confirm_step_1') == 'yes'
+    confirm_step_2 = request.form.get('confirm_step_2') == 'yes'
+    reason = request.form.get('reason', '').strip()
+
+    if not (confirm_step_1 and confirm_step_2):
+        flash("Please complete both confirmation steps to leave the team.", "warning")
+        return redirect(url_for('profile'))
+
     membership = TeamMembership.query.filter_by(user_id=current_user.id, team_id=team_id).first()
     if not membership:
         flash("You are not a member of that team.", "warning")
         return redirect(url_for('profile'))
 
     team = membership.team
-    db.session.delete(membership)
-    db.session.flush()
+    all_members = TeamMembership.query.filter_by(team_id=team_id).all()
 
-    remaining = TeamMembership.query.filter_by(team_id=team_id).order_by(TeamMembership.id.asc()).all()
-    has_cashier = any(m.role == 'cashier' for m in remaining)
-    if remaining and not has_cashier:
-        remaining[0].role = 'cashier'
-        if remaining[0].user:
-            remaining[0].user.role = 'cashier'
-    elif not remaining and team:
-        db.session.delete(team)
+    # If user is the sole member in the team, allow immediate exit
+    if len(all_members) <= 1:
+        _remove_member_from_team(team_id, current_user.id)
+        db.session.commit()
+        flash(f"You left '{team.name}'.", "info")
+        return redirect(url_for('profile'))
 
-    next_m = TeamMembership.query.filter_by(user_id=current_user.id).first()
-    current_user.active_team_id = next_m.team_id if next_m else None
-    current_user.role = next_m.role if next_m else 'member'
+    # If user is a Cashier and other cashiers exist, allow immediate exit;
+    # if they are the ONLY Cashier, require assigning another Cashier first.
+    if membership.role == 'cashier':
+        other_cashiers = [m for m in all_members if m.role == 'cashier' and m.user_id != current_user.id]
+        if not other_cashiers:
+            flash("You are the only Cashier. Add a Co-Cashier or transfer the Cashier role first before leaving.", "warning")
+            return redirect(url_for('profile'))
+        _remove_member_from_team(team_id, current_user.id)
+        db.session.commit()
+        flash(f"You left '{team.name}'.", "info")
+        return redirect(url_for('profile'))
+
+    # Regular member: create a pending LeaveRequest for Cashier approval
+    existing_req = LeaveRequest.query.filter_by(team_id=team_id, user_id=current_user.id, status='pending').first()
+    if existing_req:
+        flash("Your request to leave this team is already pending Cashier approval.", "info")
+        return redirect(url_for('profile'))
+
+    db.session.add(LeaveRequest(
+        team_id=team_id,
+        user_id=current_user.id,
+        reason=reason or "Requested to leave team"
+    ))
     db.session.commit()
-
-    flash(f"Left team '{team.name}'.", "info")
+    flash(f"Leave request submitted for '{team.name}'. Waiting for Cashier approval.", "info")
     return redirect(url_for('profile'))
+
+
+@app.route('/team/leave-requests/<int:req_id>/<action>', methods=['POST'])
+@login_required
+@team_and_cashier_required
+def process_leave_request(req_id, action):
+    team, _ = get_active_team_context()
+    leave_req = LeaveRequest.query.filter_by(id=req_id, team_id=team.id).first_or_404()
+    if leave_req.status != 'pending':
+        flash("Leave request already processed.", "warning")
+        return redirect(url_for('dashboard'))
+
+    if action == 'approve':
+        leave_req.status = 'approved'
+        _remove_member_from_team(team.id, leave_req.user_id)
+        flash(f"Approved leave request for {leave_req.user.name}.", "success")
+    elif action == 'reject':
+        leave_req.status = 'rejected'
+        flash(f"Rejected leave request for {leave_req.user.name}.", "secondary")
+
+    db.session.commit()
+    return redirect(url_for('dashboard'))
 
 
 # ---------------- MAIN TABS ----------------
@@ -453,6 +534,7 @@ def dashboard():
             category_totals[e.category] += e.amount
 
     pending_claims = BillClaim.query.filter_by(team_id=team.id, status='pending').order_by(BillClaim.created_at.desc()).all()
+    pending_leave_requests = LeaveRequest.query.filter_by(team_id=team.id, status='pending').order_by(LeaveRequest.created_at.desc()).all()
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all()
     members = sorted([m.user for m in team_memberships if m.user], key=lambda u: u.name.lower())
 
@@ -464,6 +546,7 @@ def dashboard():
         category_totals=category_totals,
         categories=CATEGORIES,
         pending_claims=pending_claims,
+        pending_leave_requests=pending_leave_requests,
         members=members,
         team_memberships=team_memberships
     )
@@ -822,10 +905,14 @@ def profile():
 
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all() if team else []
     user_memberships = TeamMembership.query.filter_by(user_id=current_user.id).all()
+    pending_my_leave_team_ids = {
+        lr.team_id for lr in LeaveRequest.query.filter_by(user_id=current_user.id, status='pending').all()
+    }
     return render_template(
         'profile.html',
         team_memberships=team_memberships,
-        user_memberships=user_memberships
+        user_memberships=user_memberships,
+        pending_my_leave_team_ids=pending_my_leave_team_ids
     )
 
 
@@ -835,7 +922,7 @@ def profile():
 def manage_cashier_role(user_id):
     team, current_membership = get_active_team_context()
     target_membership = TeamMembership.query.filter_by(team_id=team.id, user_id=user_id).first_or_404()
-    mode = request.form.get('mode', 'co_cashier')  # 'co_cashier', 'transfer', or 'remove_cashier'
+    mode = request.form.get('mode', 'co_cashier')
 
     if mode == 'co_cashier':
         target_membership.role = 'cashier'
