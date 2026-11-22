@@ -6,7 +6,7 @@
     <h5 class="fw-bold mb-0">{{ active_team.name }}</h5>
     <small class="text-muted">
       {% if active_team.city %}{{ active_team.city }} • {% endif %}
-      Invite Code: <span class="badge bg-dark">{{ active_team.invite_code }}</span>
+      Invite Link: <a href="{{ url_for('join_via_invite_link', code=active_team.invite_code, _external=True) }}" class="small text-decoration-none">Copy from Profile</a>
     </small>
   </div>
   <div class="d-flex gap-2">
@@ -44,7 +44,7 @@
     {% for c in pending_claims %}
       {% set is_dep = (c.category == "Monthly Deposit (Per Person)") %}
       <div class="border rounded-3 p-2 mb-2 bg-light">
-        <div class="d-flex justify-content-between align-items-start">
+        <div class="d-flex justify-content-between align-items-start gap-2">
           <div>
             <div class="fw-bold small">{{ c.user.name }} • ₹{{ "%.2f"|format(c.amount) }}</div>
             <div class="small">
@@ -53,13 +53,18 @@
             </div>
             <div class="small text-muted mt-1">{{ c.remarks }}</div>
           </div>
-          <div class="d-flex gap-1">
+          <div class="d-flex gap-1 flex-wrap">
             <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='approve') }}">
               <button class="btn btn-sm btn-success rounded-pill px-3">Approve</button>
             </form>
             <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='reject') }}">
               <button class="btn btn-sm btn-outline-danger rounded-pill px-2">Reject</button>
             </form>
+            {% if is_super_admin %}
+              <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" onsubmit="return confirm('Delete this bill claim?');">
+                <button class="btn btn-sm btn-dark rounded-pill px-2"><i class="bi bi-trash"></i></button>
+              </form>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -170,6 +175,36 @@
       <button class="btn btn-success btn-sm w-100 rounded-pill">Submit for Cashier Approval</button>
     </div>
   </form>
+</div>
+{% endif %}
+
+<!-- Super Admin: Delete Transactions & Bills -->
+{% if is_super_admin %}
+<div class="card p-3 mb-3 border-dark">
+  <h6 class="fw-bold mb-2"><i class="bi bi-shield-lock-fill me-1"></i>Super Admin: Manage Bills & Transactions</h6>
+  <div class="small fw-bold mb-1">Recent Pool Ledger Entries</div>
+  {% for e in all_ledger_entries[:10] %}
+    <div class="d-flex justify-content-between align-items-center py-1 border-bottom small gap-2">
+      <span class="text-truncate">{{ e.category }} • ₹{{ "%.2f"|format(e.amount) }} ({{ e.remarks or '—' }})</span>
+      <form method="POST" action="{{ url_for('super_admin_delete_ledger', entry_id=e.id) }}" class="m-0" onsubmit="return confirm('Delete this ledger entry?');">
+        <button class="btn btn-sm btn-outline-danger rounded-pill py-0 px-2">Delete</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="text-muted small mb-2">No ledger entries.</p>
+  {% endfor %}
+
+  <div class="small fw-bold mt-3 mb-1">Recent Bill Claims</div>
+  {% for c in all_claims[:10] %}
+    <div class="d-flex justify-content-between align-items-center py-1 border-bottom small gap-2">
+      <span class="text-truncate">{{ c.user.name }} • {{ c.category }} • ₹{{ "%.2f"|format(c.amount) }} [{{ c.status }}]</span>
+      <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" class="m-0" onsubmit="return confirm('Delete this bill claim?');">
+        <button class="btn btn-sm btn-outline-danger rounded-pill py-0 px-2">Delete</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="text-muted small mb-0">No bill claims.</p>
+  {% endfor %}
 </div>
 {% endif %}
 {% endblock %}
