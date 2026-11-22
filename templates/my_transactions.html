@@ -1,39 +1,58 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card p-4 mb-3">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <div>
-      <small class="text-muted">Individual Virtual Account • {{ active_team.name }}</small>
-      <div class="fw-bold text-primary">{{ viewed_user.name }}</div>
-      <h2 class="fw-bold mb-0 mt-1">₹{{ "%.2f"|format(viewed_balance) }}</h2>
-    </div>
-    {% if is_cashier and members %}
-      <form method="GET">
-        <select name="user_id" class="form-select form-select-sm rounded-pill" onchange="this.form.submit()">
-          {% for m in members %}
-            <option value="{{ m.id }}" {{ 'selected' if m.id == viewed_user.id else '' }}>{{ m.name }}</option>
-          {% endfor %}
-        </select>
-      </form>
-    {% endif %}
+<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h5 class="fw-bold mb-0">{{ viewed_user.name }}'s Ledger</h5>
+    <small class="text-muted">Individual credits, approved bills & personal balance</small>
   </div>
+
+  {% if is_cashier and members %}
+    <form method="GET" action="{{ url_for('my_transactions') }}" class="m-0">
+      <select name="user_id" class="form-select form-select-sm rounded-pill" onchange="this.form.submit()">
+        {% for m in members %}
+          <option value="{{ m.id }}" {{ 'selected' if m.id == viewed_user.id else '' }}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  {% endif %}
 </div>
 
+<!-- Individual Net Balance Card -->
+<div class="hero-ledger-card p-4 mb-3">
+  <div class="small text-uppercase fw-semibold" style="color: #94a3b8; letter-spacing: 0.08em;">Individual Net Balance</div>
+  <h2 class="fw-bold my-1 num-tabular {{ 'text-info' if viewed_balance >= 0 else 'text-warning' }}">
+    ₹{{ "%.2f"|format(viewed_balance) }}
+  </h2>
+  <div class="small" style="color: #94a3b8;">Total individual entries: {{ transactions|length }}</div>
+</div>
+
+<!-- Individual Transactions List with Delete Option -->
 <div class="card p-3">
-  <h6 class="fw-bold mb-3">Individual Account History</h6>
-  {% for t in transactions %}
-    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-      <div>
-        <div class="fw-semibold small">{{ t.category }}</div>
-        <div class="text-muted small">{{ t.remarks or 'Record entry' }}</div>
-        <div class="text-secondary" style="font-size: 0.72rem;">{{ t.created_at.strftime('%d %b %Y • %I:%M %p') }}</div>
+  <h6 class="fw-bold mb-2">Individual Transaction History</h6>
+  {% for tx in transactions %}
+    <div class="d-flex justify-content-between align-items-center py-2 border-bottom gap-2">
+      <div class="min-w-0">
+        <div class="fw-semibold small text-truncate">{{ tx.category }}</div>
+        <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ tx.remarks or '—' }}</div>
+        <div class="text-muted" style="font-size: 0.7rem;">{{ tx.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
       </div>
-      <span class="fw-bold {{ 'text-success' if t.tx_type == 'credit' else 'text-danger' }}">
-        {{ '+' if t.tx_type == 'credit' else '-' }}₹{{ "%.2f"|format(t.amount) }}
-      </span>
+
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <span class="fw-bold small num-tabular {{ 'text-success' if tx.tx_type == 'credit' else 'text-danger' }}">
+          {{ '+' if tx.tx_type == 'credit' else '-' }}₹{{ "%.2f"|format(tx.amount) }}
+        </span>
+
+        {% if tx.user_id == current_user.id or is_super_admin %}
+          <form method="POST" action="{{ url_for('delete_personal_transaction', tx_id=tx.id) }}" class="m-0" onsubmit="return confirm('Delete this individual transaction? Your personal balance will be updated.');">
+            <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill py-0 px-2" title="Delete Transaction">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        {% endif %}
+      </div>
     </div>
   {% else %}
-    <p class="text-muted small mb-0">No personal transactions in this team yet.</p>
+    <p class="text-muted small mb-0">No individual transactions recorded yet.</p>
   {% endfor %}
 </div>
 {% endblock %}
