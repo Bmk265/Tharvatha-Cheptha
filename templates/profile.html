@@ -1,251 +1,253 @@
 {% extends "base.html" %}
 {% block content %}
-<!-- Account & Virtual Record Notice -->
+<!-- Profile Header Card -->
 <div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center gap-2">
-    <div class="d-flex align-items-center gap-3">
+  <div class="d-flex justify-content-between align-items-start gap-2">
+    <div class="d-flex align-items-center gap-3 min-w-0 flex-grow-1">
       {% if current_user.avatar_path %}
-        <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-lg border">
+        <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-lg flex-shrink-0 border">
       {% else %}
-        <span class="avatar-circle avatar-lg">{{ current_user.name[:1]|upper }}</span>
+        <span class="avatar-circle avatar-lg flex-shrink-0">{{ current_user.name[:1]|upper }}</span>
       {% endif %}
-      <div>
-        <h5 class="fw-bold mb-0">{{ current_user.name }}</h5>
-        <div class="small text-muted">{{ current_user.email }}</div>
+      <div class="min-w-0">
+        <h5 class="fw-bold mb-0 text-truncate">{{ current_user.name }}</h5>
+        <div class="small text-muted text-truncate">{{ current_user.email }}</div>
       </div>
     </div>
-    <div class="d-flex gap-1 flex-wrap">
+
+    <div class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
       {% if is_super_admin %}
-        <span class="badge bg-warning text-dark rounded-pill">SUPER ADMIN</span>
+        <span class="badge bg-warning text-dark rounded-pill px-2 py-1" style="font-size: 0.65rem;">SUPER ADMIN</span>
       {% endif %}
       {% if active_membership %}
-        <span class="badge bg-primary rounded-pill">{{ active_membership.role|upper }}</span>
-      {% elif not is_super_admin %}
-        <span class="badge bg-secondary rounded-pill">NO TEAM</span>
+        <span class="badge bg-primary rounded-pill px-2 py-1" style="font-size: 0.65rem;">{{ active_membership.role|upper }}</span>
       {% endif %}
     </div>
   </div>
-  <div class="alert alert-info py-2 px-3 small mt-3 mb-0 rounded-3">
+
+  <!-- Virtual Records Notice -->
+  <div class="alert alert-info py-2 px-3 small rounded-3 border-0 mt-3 mb-0">
     <strong>Virtual Records Only:</strong> All balances, deposits, and bills in TeamPool are record-keeping figures and cannot be withdrawn or transferred as real money.
   </div>
 </div>
 
-<!-- Create Team Popup Trigger & Shareable Invite Links -->
+<!-- Teams & Invite Links Card -->
 <div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
-    <div>
-      <h6 class="fw-bold mb-0"><i class="bi bi-people me-1 text-primary"></i>Teams & Invite Links</h6>
-      <small class="text-muted">New members join only by opening a team's invite link.</small>
+  <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+    <div class="min-w-0">
+      <h6 class="fw-bold mb-1"><i class="bi bi-people text-primary me-1"></i>Teams &amp; Invite Links</h6>
+      <div class="small text-muted">New members join only by opening a team's invite link.</div>
     </div>
-    <button type="button" class="btn btn-sm btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#createTeamModal">
+    <button type="button" class="btn btn-primary btn-sm rounded-pill px-3 flex-shrink-0" data-bs-toggle="modal" data-bs-target="#createTeamModal">
       <i class="bi bi-plus-lg me-1"></i>Create Team
     </button>
   </div>
 
-  <h6 class="fw-bold small text-uppercase text-muted mt-3 mb-2">Your Teams ({{ user_memberships|length }})</h6>
-  {% for um in user_memberships %}
-    {% set invite_url = url_for('join_via_invite_link', code=um.team.invite_code, _external=True) %}
-    <div class="py-2 border-bottom">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div>
-          <span class="fw-semibold small">{{ um.team.name }}</span>
-          <span class="badge {{ 'bg-success' if um.role == 'cashier' else 'bg-light text-dark border' }} ms-1">{{ um.role }}</span>
-        </div>
-        <div class="d-flex gap-2">
-          {% if not active_team or um.team_id != active_team.id %}
-            <form method="POST" action="{{ url_for('switch_team') }}" class="m-0">
-              <input type="hidden" name="team_id" value="{{ um.team_id }}">
-              <button class="btn btn-sm btn-outline-primary rounded-pill px-3">Switch</button>
-            </form>
-          {% endif %}
+  <div class="text-uppercase small fw-bold text-muted mb-2" style="font-size: 0.7rem; letter-spacing: 0.05em;">
+    YOUR TEAMS ({{ user_memberships|length }})
+  </div>
 
-          {% if um.team_id in pending_my_leave_team_ids %}
-            <span class="badge bg-warning text-dark rounded-pill align-self-center px-3 py-2">Leave Pending Cashier Approval</span>
-          {% else %}
-            <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3"
-                    onclick="openLeaveConfirmModal({{ um.team_id }}, {{ um.team.name|tojson }})">
-              Leave Team
-            </button>
-          {% endif %}
+  {% for m in user_memberships %}
+    {% if m.team %}
+      {% set invite_url = url_for('join_via_invite_link', code=m.team.invite_code, _external=True) %}
+      <div class="border rounded-4 p-3 mb-2 bg-light">
+        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+          <div class="d-flex align-items-center gap-2 min-w-0">
+            <span class="fw-bold small text-truncate">{{ m.team.name }}</span>
+            <span class="badge {{ 'bg-success' if m.role == 'cashier' else 'bg-secondary' }} rounded-pill">{{ m.role }}</span>
+            {% if active_team and active_team.id == m.team.id %}
+              <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill">Active</span>
+            {% endif %}
+          </div>
+
+          <div class="d-flex align-items-center gap-2">
+            {% if not active_team or active_team.id != m.team.id %}
+              <form method="POST" action="{{ url_for('switch_team') }}" class="m-0">
+                <input type="hidden" name="team_id" value="{{ m.team.id }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary rounded-pill px-3">Switch</button>
+              </form>
+            {% endif %}
+
+            {% if m.team.id in pending_my_leave_team_ids %}
+              <span class="badge bg-warning text-dark rounded-pill px-3 py-2">Exit Pending</span>
+            {% else %}
+              <button type="button"
+                      class="btn btn-sm btn-outline-danger rounded-pill px-3"
+                      onclick="openLeaveTeamModal({{ m.team.id }}, '{{ m.team.name|e }}')">
+                Leave Team
+              </button>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center gap-2 bg-white border rounded-3 px-3 py-2">
+          <span class="small text-muted text-truncate" id="inviteLinkText-{{ m.team.id }}">{{ invite_url }}</span>
+          <button type="button"
+                  class="btn btn-sm btn-outline-secondary rounded-pill px-3 flex-shrink-0"
+                  onclick="copyInviteLink('inviteLinkText-{{ m.team.id }}', this)">
+            Copy Link
+          </button>
         </div>
       </div>
-      <div class="d-flex align-items-center gap-2 mt-2 bg-light p-2 rounded-3">
-        <span class="small text-truncate flex-grow-1 text-muted" id="invite-link-{{ um.team.id }}">{{ invite_url }}</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-0"
-                onclick="copyInviteLink({{ um.team.id }})">
-          Copy Link
-        </button>
-      </div>
-    </div>
+    {% endif %}
   {% else %}
-    <p class="text-muted small mb-0">You are not in any team yet. Tap <strong>Create Team</strong> above or open a team invite link shared with you.</p>
+    <p class="text-muted small mb-0">You haven't joined any team yet. Create a team or open an invite link.</p>
   {% endfor %}
 </div>
 
-<!-- Super Admin: All Teams & All Users -->
-{% if is_super_admin %}
-<div class="card p-3 mb-3 border-warning">
-  <h6 class="fw-bold text-warning-emphasis mb-2"><i class="bi bi-shield-lock-fill me-1"></i>Super Admin Overview</h6>
-  <div class="small fw-bold mb-1">All Teams ({{ all_teams|length }})</div>
-  {% for t in all_teams %}
-    <div class="d-flex justify-content-between small py-1 border-bottom">
-      <span><strong>{{ t.name }}</strong> {% if t.city %}({{ t.city }}){% endif %}</span>
-      <span class="text-muted">{{ t.memberships|length }} member(s)</span>
-    </div>
-  {% endfor %}
-
-  <div class="small fw-bold mt-3 mb-1">All Registered Users ({{ all_users|length }})</div>
-  {% for u in all_users %}
-    <div class="d-flex justify-content-between align-items-center small py-1 border-bottom">
-      <span>{{ u.name }} <span class="text-muted">({{ u.email }})</span></span>
-      {% if u.is_super_admin %}
-        <span class="badge bg-warning text-dark rounded-pill">SUPER ADMIN</span>
-      {% endif %}
-    </div>
-  {% endfor %}
-</div>
-{% endif %}
-
-<!-- Active Team Members & Cashier Delegation -->
+<!-- Active Team Members & Cashier Role Management -->
 {% if active_team and team_memberships %}
 <div class="card p-3 mb-3">
-  <h6 class="fw-bold mb-1">Members & Cashier Access — {{ active_team.name }}</h6>
-  {% if is_cashier %}
-    <p class="text-muted small mb-2">Add a backup <strong>Co-Cashier</strong> if you're away, or transfer the role completely.</p>
-  {% endif %}
-  {% for tm in team_memberships %}
-    <div class="d-flex justify-content-between align-items-center py-2 border-bottom flex-wrap gap-2">
-      <div class="d-flex align-items-center gap-2">
-        {% if tm.user.avatar_path %}
-          <img src="{{ url_for('static', filename=tm.user.avatar_path) }}" alt="{{ tm.user.name }}" class="avatar-circle avatar-sm">
-        {% else %}
-          <span class="avatar-circle avatar-sm">{{ tm.user.name[:1]|upper }}</span>
-        {% endif %}
-        <span class="fw-semibold small">{{ tm.user.name }}</span>
-        <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary-subtle text-dark' }} ms-1 rounded-pill">{{ tm.role }}</span>
-      </div>
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="fw-bold mb-0"><i class="bi bi-person-check text-primary me-1"></i>{{ active_team.name }} Members</h6>
+    <span class="badge bg-light text-dark border rounded-pill">{{ team_memberships|length }}</span>
+  </div>
 
-      {% if is_cashier and tm.user_id != current_user.id %}
-        <div class="d-flex gap-1 flex-wrap">
-          {% if tm.role != 'cashier' %}
-            <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="m-0">
-              <input type="hidden" name="mode" value="co_cashier">
-              <button class="btn btn-sm btn-outline-success rounded-pill">Add Co-Cashier</button>
-            </form>
-            <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="m-0">
-              <input type="hidden" name="mode" value="transfer">
-              <button class="btn btn-sm btn-outline-warning rounded-pill">Transfer & Step Down</button>
-            </form>
+  {% for tm in team_memberships %}
+    {% if tm.user %}
+      <div class="d-flex justify-content-between align-items-center py-2 border-bottom gap-2 flex-wrap">
+        <div class="d-flex align-items-center gap-2 min-w-0">
+          {% if tm.user.avatar_path %}
+            <img src="{{ url_for('static', filename=tm.user.avatar_path) }}" alt="{{ tm.user.name }}" class="avatar-circle avatar-sm flex-shrink-0">
           {% else %}
-            <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="m-0">
-              <input type="hidden" name="mode" value="remove_cashier">
-              <button class="btn btn-sm btn-outline-secondary rounded-pill">Remove Cashier</button>
-            </form>
+            <span class="avatar-circle avatar-sm flex-shrink-0">{{ tm.user.name[:1]|upper }}</span>
           {% endif %}
+          <div class="min-w-0">
+            <div class="fw-semibold small text-truncate">
+              {{ tm.user.name }}
+              <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary' }} rounded-pill ms-1" style="font-size: 0.62rem;">{{ tm.role|upper }}</span>
+            </div>
+            <div class="text-muted text-truncate" style="font-size: 0.72rem;">{{ tm.user.email }}</div>
+          </div>
         </div>
-      {% endif %}
-    </div>
+
+        {% if is_cashier and tm.user_id != current_user.id %}
+          <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="d-flex gap-1 m-0">
+            {% if tm.role != 'cashier' %}
+              <button type="submit" name="mode" value="co_cashier" class="btn btn-sm btn-outline-success rounded-pill px-2 py-1" style="font-size: 0.72rem;">Make Co-Cashier</button>
+              <button type="submit" name="mode" value="transfer" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1" style="font-size: 0.72rem;">Transfer Role</button>
+            {% else %}
+              <button type="submit" name="mode" value="remove_cashier" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-1" style="font-size: 0.72rem;">Set Member</button>
+            {% endif %}
+          </form>
+        {% endif %}
+      </div>
+    {% endif %}
   {% endfor %}
 </div>
 {% endif %}
 
-<!-- Edit Profile & Upload Profile Photo -->
+<!-- Edit Profile & Account Settings -->
 <div class="card p-3 mb-3">
-  <h6 class="fw-bold mb-2">Account Settings & Profile Photo</h6>
-  <form method="POST" enctype="multipart/form-data">
-    <div class="mb-2">
-      <label class="form-label small">Profile Photo (PNG, JPG, WEBP)</label>
-      <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm">
-    </div>
-    <div class="mb-2">
-      <label class="form-label small">Display Name</label>
+  <h6 class="fw-bold mb-2"><i class="bi bi-sliders text-primary me-1"></i>Edit Profile &amp; Security</h6>
+  <form method="POST" action="{{ url_for('profile') }}" enctype="multipart/form-data" class="row g-2">
+    <div class="col-12 col-sm-6">
+      <label class="form-label small text-muted mb-1">Display Name</label>
       <input type="text" name="name" value="{{ current_user.name }}" class="form-control form-control-sm" required>
     </div>
-    <div class="mb-3">
-      <label class="form-label small">New Password (optional)</label>
+    <div class="col-12 col-sm-6">
+      <label class="form-label small text-muted mb-1">New Password (optional)</label>
       <input type="password" name="new_password" class="form-control form-control-sm" placeholder="Leave blank to keep current">
     </div>
-    <button class="btn btn-dark btn-sm w-100 rounded-pill py-2">Save Profile</button>
+    <div class="col-12">
+      <label class="form-label small text-muted mb-1">Profile Photo (PNG, JPG, WEBP)</label>
+      <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm">
+    </div>
+    <div class="col-12 d-flex justify-content-between align-items-center gap-2 pt-2 flex-wrap">
+      <button type="submit" class="btn btn-primary btn-sm rounded-pill px-4 py-2">Save Changes</button>
+      <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary btn-sm rounded-pill px-3 py-2">
+        <i class="bi bi-box-arrow-right me-1"></i>Sign Out
+      </a>
+    </div>
   </form>
 </div>
 
-<!-- Leave Active Team & Logout -->
-<div class="d-grid gap-2">
-  {% if active_team %}
-    {% if active_team.id in pending_my_leave_team_ids %}
-      <button class="btn btn-outline-warning btn-sm w-100 rounded-pill py-2" disabled>Leave Request Pending Cashier Approval</button>
-    {% else %}
-      <button type="button" class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2"
-              onclick="openLeaveConfirmModal({{ active_team.id }}, {{ active_team.name|tojson }})">
-        Leave {{ active_team.name }}
-      </button>
-    {% endif %}
-  {% endif %}
-  <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm w-100 rounded-pill py-2">Logout</a>
+<!-- Super Admin Overview -->
+{% if is_super_admin %}
+<div class="card p-3 mb-3 border-warning border-opacity-75">
+  <h6 class="fw-bold mb-2"><i class="bi bi-shield-lock-fill text-warning me-1"></i>Super Admin Overview</h6>
+  <div class="row g-2 text-center mb-2">
+    <div class="col-6">
+      <div class="p-2 rounded-3 bg-light border">
+        <div class="text-muted" style="font-size: 0.7rem;">TOTAL TEAMS</div>
+        <div class="fw-bold fs-5 num-tabular">{{ all_teams|length }}</div>
+      </div>
+    </div>
+    <div class="col-6">
+      <div class="p-2 rounded-3 bg-light border">
+        <div class="text-muted" style="font-size: 0.7rem;">TOTAL USERS</div>
+        <div class="fw-bold fs-5 num-tabular">{{ all_users|length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="small text-muted">
+    Teams: {{ all_teams | map(attribute='name') | join(', ') if all_teams else 'None' }}
+  </div>
 </div>
+{% endif %}
 
-<!-- Popup Modal: Create Team -->
+<!-- Create Team Modal -->
 <div class="modal fade" id="createTeamModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 rounded-4">
-      <div class="modal-header border-0 pb-0">
-        <h6 class="modal-title fw-bold"><i class="bi bi-people-fill text-primary me-1"></i>Create a New Team</h6>
+      <div class="modal-header border-0 pb-1">
+        <h6 class="modal-title fw-bold">Create New Team Workspace</h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST" action="{{ url_for('create_team') }}">
-        <div class="modal-body">
+        <div class="modal-body pt-2">
           <div class="mb-2">
-            <label class="form-label small fw-semibold">Team / Room Name</label>
-            <input type="text" name="team_name" class="form-control form-control-sm" placeholder="e.g., Room 204 Crew" required>
+            <label class="form-label small text-muted mb-1">Team Name</label>
+            <input type="text" name="team_name" class="form-control form-control-sm" placeholder="e.g., Flat 4B Pool" required>
           </div>
           <div class="mb-2">
-            <label class="form-label small fw-semibold">City (optional)</label>
+            <label class="form-label small text-muted mb-1">City / Location (optional)</label>
             <input type="text" name="team_city" class="form-control form-control-sm" placeholder="e.g., Visakhapatnam">
           </div>
         </div>
         <div class="modal-footer border-0 pt-0">
           <button type="button" class="btn btn-sm btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary rounded-pill px-4">Create Team</button>
+          <button type="submit" class="btn btn-sm btn-primary rounded-pill px-4">Create Workspace</button>
         </div>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Double-Confirmation Leave Team Modal -->
+<!-- Two-Step Leave Team Modal -->
 <div class="modal fade" id="leaveTeamModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 rounded-4">
-      <div class="modal-header border-0 pb-0">
-        <h6 class="modal-title fw-bold text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Confirm Leaving Team</h6>
+      <div class="modal-header border-0 pb-1">
+        <h6 class="modal-title fw-bold text-danger" id="leaveTeamModalTitle">Leave Team</h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST" action="{{ url_for('leave_team') }}" onsubmit="return confirm('Final confirmation: Send leave request for ' + document.getElementById('leaveTeamTitle').textContent + '?');">
-        <div class="modal-body">
-          <input type="hidden" name="team_id" id="leaveTeamIdInput">
-          <p class="small mb-2">
-            You are requesting to leave <strong id="leaveTeamTitle"></strong>. Your exit will be sent to the team's <strong>Cashier</strong> for final approval.
+      <form method="POST" action="{{ url_for('leave_team') }}">
+        <input type="hidden" name="team_id" id="leaveTeamIdInput">
+        <div class="modal-body pt-2">
+          <p class="small text-muted mb-3">
+            Leaving a team as a regular member submits an exit request for Cashier approval. Please confirm both steps below:
           </p>
-          <div class="mb-3">
-            <label class="form-label small">Reason (optional)</label>
-            <input type="text" name="reason" class="form-control form-control-sm" placeholder="e.g., Moving out / shifting room">
-          </div>
           <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="confirm_step_1" value="yes" id="leaveCheck1" required>
-            <label class="form-check-label small" for="leaveCheck1">
-              1. I confirm I want to leave this team.
+            <input class="form-check-input" type="checkbox" name="confirm_step_1" value="yes" id="leaveStep1" required>
+            <label class="form-check-label small" for="leaveStep1">
+              Step 1: I understand I want to leave this team workspace.
             </label>
           </div>
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="confirm_step_2" value="yes" id="leaveCheck2" required>
-            <label class="form-check-label small" for="leaveCheck2">
-              2. I understand a Cashier must approve my exit before I am removed.
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="confirm_step_2" value="yes" id="leaveStep2" required>
+            <label class="form-check-label small" for="leaveStep2">
+              Step 2: I confirm this exit request is intentional.
             </label>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small text-muted mb-1">Reason (optional)</label>
+            <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason for leaving">
           </div>
         </div>
         <div class="modal-footer border-0 pt-0">
           <button type="button" class="btn btn-sm btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-danger rounded-pill px-3">Confirm & Request Exit</button>
+          <button type="submit" class="btn btn-sm btn-danger rounded-pill px-4">Confirm Leave</button>
         </div>
       </form>
     </div>
@@ -255,24 +257,40 @@
 
 {% block scripts %}
 <script>
-  function copyInviteLink(teamId) {
-    const el = document.getElementById(`invite-link-${teamId}`);
+  function copyInviteLink(elementId, btnEl) {
+    const el = document.getElementById(elementId);
     if (!el) return;
-    navigator.clipboard.writeText(el.textContent.trim()).then(() => {
-      alert('Invite link copied! Share it with teammates to join.');
-    });
+    const text = el.textContent.trim();
+    const onCopied = () => {
+      if (!btnEl) return;
+      const original = btnEl.textContent;
+      btnEl.textContent = 'Copied';
+      setTimeout(() => { btnEl.textContent = original; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(onCopied).catch(() => fallbackCopy(text, onCopied));
+    } else {
+      fallbackCopy(text, onCopied);
+    }
   }
 
-  function openLeaveConfirmModal(teamId, teamName) {
-    if (!confirm('Step 1: Are you sure you want to start leaving "' + teamName + '"?')) {
-      return;
-    }
+  function fallbackCopy(text, callback) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (callback) callback();
+  }
+
+  function openLeaveTeamModal(teamId, teamName) {
     document.getElementById('leaveTeamIdInput').value = teamId;
-    document.getElementById('leaveTeamTitle').textContent = teamName;
-    document.getElementById('leaveCheck1').checked = false;
-    document.getElementById('leaveCheck2').checked = false;
-    const modal = new bootstrap.Modal(document.getElementById('leaveTeamModal'));
-    modal.show();
+    document.getElementById('leaveTeamModalTitle').textContent = 'Leave "' + teamName + '"';
+    document.getElementById('leaveStep1').checked = false;
+    document.getElementById('leaveStep2').checked = false;
+    const modalEl = document.getElementById('leaveTeamModal');
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
   }
 </script>
 {% endblock %}
