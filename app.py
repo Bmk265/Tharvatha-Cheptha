@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 from datetime import datetime
 from functools import wraps
@@ -10,6 +11,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy import text, inspect
 
+try:
+    from pywebpush import webpush, WebPushException
+except ImportError:
+    webpush = None
+    WebPushException = Exception
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-secret-key-in-render')
 
@@ -18,6 +25,10 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
+
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '').strip()
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '').strip()
+VAPID_CLAIMS_EMAIL = os.environ.get('VAPID_CLAIMS_EMAIL', 'mailto:admin@teampool.app').strip()
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
@@ -221,6 +232,59 @@ class FeedComment(db.Model):
     author = db.relationship('User', backref='feed_comments')
 
 
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    title = db.Column(db.String(140), nullable=False)
+    body = db.Column(db.String(255), nullable=False)
+    link_url = db.Column(db.String(255), default='/')
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+
+class PushSubscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    endpoint = db.Column(db.Text, unique=True, nullable=False)
+    subscription_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+
+def notify_users(team_id, recipient_user_ids, title, body, link_url='/'):
+    unique_ids = set(recipient_user_ids)
+    if not unique_ids:
+        return
+
+    for uid in unique_ids:
+        db.session.add(Notification(
+            team_id=team_id,
+            user_id=uid,
+            title=title,
+            body=body,
+            link_url=link_url
+        ))
+
+    if webpush and VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY:
+        subs = PushSubscription.query.filter(PushSubscription.user_id.in_(unique_ids)).all()
+        payload = json.dumps({'title': title, 'body': body, 'url': link_url})
+        for sub in subs:
+            try:
+                webpush(
+                    subscription_info=json.loads(sub.subscription_json),
+                    data=payload,
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims={'sub': VAPID_CLAIMS_EMAIL},
+                    ttl=86400
+                )
+            except WebPushException as ex:
+                status = getattr(getattr(ex, 'response', None), 'status_code', None)
+                if status in (404, 410):
+                    db.session.delete(sub)
+            except Exception:
+                pass
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -280,6 +344,9 @@ def inject_globals():
         team, membership = get_active_team_context()
         all_memberships = TeamMembership.query.filter_by(user_id=current_user.id).all()
         is_super = bool(getattr(current_user, 'is_super_admin', False))
+        recent_notifications = Notification.query.filter_by(user_id=current_user.id).order_by(Notification.created_at.desc()).limit(25).all()
+        unread_notifications_count = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
+        has_push_sub = PushSubscription.query.filter_by(user_id=current_user.id).count() > 0
         return {
             'active_team': team,
             'active_membership': membership,
@@ -287,7 +354,11 @@ def inject_globals():
             'is_cashier': ((membership.role == 'cashier') if membership else False) or is_super,
             'is_super_admin': is_super,
             'global_categories': CATEGORIES,
-            'global_expense_categories': EXPENSE_CATEGORIES
+            'global_expense_categories': EXPENSE_CATEGORIES,
+            'recent_notifications': recent_notifications,
+            'unread_notifications_count': unread_notifications_count,
+            'vapid_public_key': VAPID_PUBLIC_KEY,
+            'has_push_sub': has_push_sub
         }
     return {
         'active_team': None,
@@ -296,7 +367,11 @@ def inject_globals():
         'is_cashier': False,
         'is_super_admin': False,
         'global_categories': CATEGORIES,
-        'global_expense_categories': EXPENSE_CATEGORIES
+        'global_expense_categories': EXPENSE_CATEGORIES,
+        'recent_notifications': [],
+        'unread_notifications_count': 0,
+        'vapid_public_key': VAPID_PUBLIC_KEY,
+        'has_push_sub': False
     }
 
 
@@ -359,7 +434,7 @@ def _remove_member_from_team(team_id, user_id):
     return team
 
 
-# ---------------- PWA ROUTES ----------------
+# ---------------- PWA & PUSH ROUTES ----------------
 @app.route('/manifest.json')
 def manifest():
     return send_from_directory('static', 'manifest.json')
@@ -368,6 +443,38 @@ def manifest():
 @app.route('/sw.js')
 def service_worker():
     return send_from_directory('static', 'sw.js', mimetype='application/javascript')
+
+
+@app.route('/push/subscribe', methods=['POST'])
+@login_required
+def push_subscribe():
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get('endpoint')
+    if not endpoint:
+        return jsonify({'ok': False, 'error': 'Missing endpoint'}), 400
+
+    existing = PushSubscription.query.filter_by(endpoint=endpoint).first()
+    if existing:
+        existing.user_id = current_user.id
+        existing.subscription_json = json.dumps(data)
+    else:
+        db.session.add(PushSubscription(
+            user_id=current_user.id,
+            endpoint=endpoint,
+            subscription_json=json.dumps(data)
+        ))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/notifications/read-all', methods=['POST'])
+@login_required
+def mark_all_notifications_read():
+    Notification.query.filter_by(user_id=current_user.id, is_read=False).update({'is_read': True})
+    db.session.commit()
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({'ok': True})
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # ---------------- AUTH ROUTES ----------------
@@ -490,6 +597,14 @@ def join_via_invite_link(code):
             role='member',
             personal_balance=0.0
         ))
+        other_ids = [m.user_id for m in TeamMembership.query.filter_by(team_id=team.id).all() if m.user_id != current_user.id]
+        notify_users(
+            team.id,
+            other_ids,
+            f"New Member Joined • {team.name}",
+            f"{current_user.name} joined the workspace.",
+            url_for('profile')
+        )
     current_user.active_team_id = team.id
     db.session.commit()
     flash(f"Joined '{team.name}' via invite link!", "success")
@@ -542,6 +657,14 @@ def leave_team():
         user_id=current_user.id,
         reason=reason or "Requested to leave team"
     ))
+    cashier_ids = [m.user_id for m in all_members if m.role == 'cashier']
+    notify_users(
+        team_id,
+        cashier_ids,
+        f"Exit Request • {team.name}",
+        f"{current_user.name} requested to leave the team.",
+        url_for('dashboard')
+    )
     db.session.commit()
     flash(f"Exit request submitted for '{team.name}'. Awaiting Cashier approval.", "info")
     return redirect(url_for('profile'))
@@ -563,6 +686,13 @@ def process_leave_request(req_id, action):
         flash(f"Approved exit request for {leave_req.user.name}.", "success")
     elif action == 'reject':
         leave_req.status = 'rejected'
+        notify_users(
+            team.id,
+            [leave_req.user_id],
+            f"Exit Request Update • {team.name}",
+            "Your request to leave the team was declined by the Cashier.",
+            url_for('profile')
+        )
         flash(f"Rejected exit request for {leave_req.user.name}.", "secondary")
 
     db.session.commit()
@@ -583,7 +713,6 @@ def dashboard():
 
     all_entries = PoolLedger.query.filter_by(team_id=team.id).all()
 
-    # Carry-forward: Previous month's closing available balance becomes this month's starting opening balance
     prior_entries = [e for e in all_entries if e.created_at < month_start]
     prior_credits = sum(e.amount for e in prior_entries if e.tx_type in ['opening', 'credit'])
     prior_debits = sum(e.amount for e in prior_entries if e.tx_type == 'debit')
@@ -594,9 +723,7 @@ def dashboard():
     month_credits = sum(e.amount for e in month_entries if e.tx_type == 'credit')
     month_expenses = sum(e.amount for e in month_entries if e.tx_type == 'debit')
 
-    # Current month opening = last month ending available balance + any explicit opening added this month
     month_opening = carry_forward_opening + explicit_month_opening
-    # Current month available balance = Month Opening + Current Month Credits - Current Month Expenses
     available_balance = month_opening + month_credits - month_expenses
 
     category_totals = {cat: 0.0 for cat in EXPENSE_CATEGORIES}
@@ -607,7 +734,6 @@ def dashboard():
             else:
                 category_totals["Others (Specify)"] += e.amount
 
-    # Current month bills (pending + approved + rejected in current month)
     month_bills = BillClaim.query.filter(
         BillClaim.team_id == team.id,
         BillClaim.created_at >= month_start
@@ -694,6 +820,15 @@ def cashier_transaction():
                 remarks=f"[Cashier Entry] {remarks}"
             ))
 
+    other_members = [m.user_id for m in TeamMembership.query.filter_by(team_id=team.id).all() if m.user_id != current_user.id]
+    notify_users(
+        team.id,
+        other_members,
+        f"New Ledger Entry • {team.name}",
+        f"{tx_type.upper()}: ₹{amount:.2f} ({category}) — {remarks}",
+        url_for('all_transactions')
+    )
+
     db.session.commit()
     flash("Ledger entry recorded successfully.", "success")
     return redirect(url_for('dashboard'))
@@ -726,6 +861,19 @@ def submit_claim():
         remarks=remarks or category
     )
     db.session.add(claim)
+
+    cashier_ids = [
+        m.user_id for m in TeamMembership.query.filter_by(team_id=team.id, role='cashier').all()
+        if m.user_id != current_user.id
+    ]
+    notify_users(
+        team.id,
+        cashier_ids,
+        f"New Bill Claim • {team.name}",
+        f"{current_user.name} submitted ₹{amount:.2f} for {category}.",
+        url_for('dashboard')
+    )
+
     db.session.commit()
     flash("Submitted to Cashier for approval.", "info")
     return redirect(url_for('dashboard'))
@@ -739,6 +887,8 @@ def process_claim(claim_id, action):
     if claim.status != 'pending':
         flash("Claim already processed.", "warning")
         return redirect(url_for('dashboard'))
+
+    team_name = claim.team.name if getattr(claim, 'team', None) else 'TEAM POOL'
 
     if action == 'approve':
         claim.status = 'approved'
@@ -771,10 +921,25 @@ def process_claim(claim_id, action):
             remarks=f"Approved ({ledger_type.upper()}): {claim.remarks}"
         )
         db.session.add(personal_entry)
+
+        notify_users(
+            claim.team_id,
+            [claim.user_id],
+            f"Bill Approved • {team_name}",
+            f"Your ₹{claim.amount:.2f} ({claim.category}) was approved as {ledger_type.upper()}.",
+            url_for('my_transactions')
+        )
         flash(f"Approved ₹{claim.amount:.2f} as {ledger_type.upper()} for {claim.user.name}.", "success")
 
     elif action == 'reject':
         claim.status = 'rejected'
+        notify_users(
+            claim.team_id,
+            [claim.user_id],
+            f"Bill Rejected • {team_name}",
+            f"Your ₹{claim.amount:.2f} ({claim.category}) claim was rejected.",
+            url_for('dashboard')
+        )
         flash("Bill claim rejected.", "secondary")
 
     db.session.commit()
@@ -822,7 +987,6 @@ def my_transactions():
         user_id=viewed_user.id
     ).order_by(PersonalTransaction.created_at.desc()).all()
 
-    # Keep personal balance accurately synced with individual transactions
     computed_balance = sum(t.amount if t.tx_type == 'credit' else -t.amount for t in txs)
     if viewed_membership and round(viewed_membership.personal_balance, 2) != round(computed_balance, 2):
         viewed_membership.personal_balance = computed_balance
@@ -849,7 +1013,6 @@ def delete_personal_transaction(tx_id):
 
     tx = PersonalTransaction.query.filter_by(id=tx_id, team_id=team.id).first_or_404()
 
-    # Allow individual owners to delete their own individual transactions (or Super Admin)
     if tx.user_id != current_user.id and not current_user.is_super_admin:
         flash("You can only delete your own individual transactions.", "danger")
         return redirect(url_for('my_transactions'))
@@ -878,7 +1041,6 @@ def all_transactions():
     month_filter = request.args.get('month', '')
     category_filter = request.args.get('category', '')
 
-    # Shows everything since team registration by default (chronological newest first)
     query = PoolLedger.query.filter_by(team_id=team.id)
     if person_filter:
         query = query.filter(PoolLedger.user_id == int(person_filter))
@@ -954,6 +1116,16 @@ def feed():
                 for opt_text in valid_options:
                     db.session.add(PollOption(post_id=post.id, option_text=opt_text))
 
+            other_members = [m.user_id for m in TeamMembership.query.filter_by(team_id=team.id).all() if m.user_id != current_user.id]
+            preview_text = poll_question or (content[:80] if content else "Shared a photo")
+            notify_users(
+                team.id,
+                other_members,
+                f"New Feed Post • {team.name}",
+                f"{current_user.name}: {preview_text}",
+                url_for('feed') + f"#post-{post.id}"
+            )
+
             db.session.commit()
             flash("Published to team feed!", "success")
         return redirect(url_for('feed'))
@@ -1007,6 +1179,14 @@ def add_comment(post_id):
             user_id=current_user.id,
             comment=comment_text
         ))
+        if post.user_id != current_user.id:
+            notify_users(
+                team.id,
+                [post.user_id],
+                f"New Comment • {team.name}",
+                f"{current_user.name} commented on your post: {comment_text[:80]}",
+                url_for('feed') + f"#post-{post.id}"
+            )
         db.session.commit()
     return redirect(url_for('feed') + f"#post-{post.id}")
 
