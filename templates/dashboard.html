@@ -1,155 +1,175 @@
 {% extends "base.html" %}
 {% block content %}
-<!-- Team Header & Quick Shortcuts -->
-<div class="d-flex justify-content-between align-items-center mb-2">
+<!-- Active Team Banner -->
+<div class="d-flex justify-content-between align-items-center mb-3 px-1">
   <div>
     <h5 class="fw-bold mb-0">{{ active_team.name }}</h5>
     <small class="text-muted">
-      {{ active_team.city ~ ' • ' if active_team.city else '' }}Code: <span class="badge bg-secondary-subtle text-dark">{{ active_team.invite_code }}</span>
+      {% if active_team.city %}{{ active_team.city }} • {% endif %}
+      Invite Code: <span class="badge bg-dark">{{ active_team.invite_code }}</span>
     </small>
   </div>
   <div class="d-flex gap-2">
-    <a href="{{ url_for('all_transactions') }}" class="btn btn-sm btn-outline-primary rounded-pill">All Txns</a>
-    <a href="{{ url_for('chat') }}" class="btn btn-sm btn-outline-dark rounded-pill">Chat</a>
+    <a href="{{ url_for('chat') }}" class="btn btn-sm btn-outline-primary rounded-pill">
+      <i class="bi bi-chat-dots-fill"></i> Chat
+    </a>
+    <a href="{{ url_for('all_transactions') }}" class="btn btn-sm btn-outline-dark rounded-pill">
+      <i class="bi bi-list-ul"></i> Ledger
+    </a>
   </div>
 </div>
 
-<!-- Main Maintenance Balance Hero Card -->
-<div class="card p-4 mb-3 text-white" style="background: linear-gradient(135deg, #1d4ed8 0%, #0f172a 100%);">
+<!-- Virtual Pool Balance Card -->
+<div class="card p-3 mb-3 bg-dark text-white">
   <div class="d-flex justify-content-between align-items-center">
-    <span class="small text-info fw-semibold">Available Maintenance Balance</span>
-    <span class="badge bg-white bg-opacity-15 rounded-pill">Virtual Record</span>
+    <small class="text-white-50">Available Pool Balance (Record)</small>
+    <span class="badge bg-info text-dark">Virtual Ledger</span>
   </div>
-  <h1 class="fw-bold my-2">₹{{ "%.2f"|format(available_balance) }}</h1>
-  <div class="row g-2 pt-2 border-top border-white border-opacity-15 small">
-    <div class="col-6">
-      <div class="text-white-50">Month Opening</div>
-      <div class="fw-bold fs-6">₹{{ "%.2f"|format(month_opening) }}</div>
-    </div>
-    <div class="col-6 text-end">
-      <div class="text-white-50">Month Expenses</div>
-      <div class="fw-bold fs-6 text-warning">₹{{ "%.2f"|format(month_expenses) }}</div>
-    </div>
+  <h2 class="fw-bold my-1">₹{{ "%.2f"|format(available_balance) }}</h2>
+  <div class="d-flex justify-content-between small text-white-50 mt-2 pt-2 border-top border-secondary">
+    <span>Month Opening: ₹{{ "%.2f"|format(month_opening) }}</span>
+    <span>Month Spent: ₹{{ "%.2f"|format(month_expenses) }}</span>
   </div>
 </div>
 
-<!-- Category-Wise Expenses -->
-<div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center mb-2">
-    <h6 class="fw-bold mb-0">Category-Wise Expenses (This Month)</h6>
-    <a href="{{ url_for('all_transactions') }}" class="small text-decoration-none">Filter ledger →</a>
-  </div>
-  {% for cat, amt in category_totals.items() %}
-    {% set pct = ((amt / month_expenses * 100) if month_expenses > 0 else 0) %}
-    <div class="mb-2">
-      <div class="d-flex justify-content-between small mb-1">
-        <span class="fw-medium">{{ cat }}</span>
-        <span class="fw-bold">₹{{ "%.2f"|format(amt) }}</span>
-      </div>
-      <div class="progress" style="height: 6px; border-radius: 999px;">
-        <div class="progress-bar bg-primary" style="width: {{ '%.1f'|format(pct if pct <= 100 else 100) }}%;"></div>
-      </div>
-    </div>
-  {% endfor %}
-</div>
-
-<!-- Cashier Pool Controls vs Member Bill Claim -->
+<!-- Cashier (Admin) Approvals: Bills & Leave Requests -->
 {% if is_cashier %}
-<div class="card p-3 mb-3 border-start border-4 border-primary">
-  <h6 class="fw-bold text-primary mb-2"><i class="bi bi-shield-check me-1"></i>Cashier: Opening Balance & Credit / Debit</h6>
-  <form method="POST" action="{{ url_for('cashier_transaction') }}">
-    <div class="row g-2">
-      <div class="col-6">
-        <select name="tx_type" class="form-select form-select-sm" required>
-          <option value="opening">Opening Balance</option>
-          <option value="credit">Credit (+ Add Money)</option>
-          <option value="debit">Debit (- Expense)</option>
-        </select>
-      </div>
-      <div class="col-6">
-        <input type="number" step="0.01" name="amount" class="form-control form-control-sm" placeholder="Amount (₹)" required>
-      </div>
-      <div class="col-sm-6">
-        <select name="category" class="form-select form-select-sm" required>
-          {% for cat in categories %}
-            <option value="{{ cat }}">{{ cat }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-sm-6">
-        <select name="user_id" class="form-select form-select-sm">
-          <option value="">Whole Pool Only (Optional Member)</option>
-          {% for m in members %}
-            <option value="{{ m.id }}">{{ m.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-12">
-        <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Remarks (e.g., Monthly deposit / Room rent)" required>
-      </div>
-      <div class="col-12">
-        <button class="btn btn-primary btn-sm w-100 rounded-pill py-2 fw-semibold">Update Pool Balance</button>
-      </div>
+  <!-- 1. Pending Bill Claims -->
+  <div class="card p-3 mb-3 border-warning">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="fw-bold mb-0"><i class="bi bi-receipt-cutoff text-warning me-1"></i>Pending Bill Approvals</h6>
+      <span class="badge bg-warning text-dark rounded-pill">{{ pending_claims|length }}</span>
     </div>
-  </form>
-</div>
-{% else %}
-<div class="card p-3 mb-3 border-start border-4 border-success">
-  <h6 class="fw-bold text-success mb-2"><i class="bi bi-receipt me-1"></i>Share Bill for Cashier Approval</h6>
-  <form method="POST" action="{{ url_for('submit_claim') }}">
-    <div class="row g-2">
-      <div class="col-6">
-        <input type="number" step="0.01" name="amount" class="form-control form-control-sm" placeholder="Amount (₹)" required>
-      </div>
-      <div class="col-6">
-        <select name="category" class="form-select form-select-sm" required>
-          {% for cat in categories %}
-            <option value="{{ cat }}">{{ cat }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-12">
-        <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Bill details / remarks" required>
-      </div>
-      <div class="col-12">
-        <button class="btn btn-success btn-sm w-100 rounded-pill py-2 fw-semibold">Submit Bill to Cashier</button>
-      </div>
-    </div>
-  </form>
-</div>
-{% endif %}
 
-<!-- Pending Approvals -->
-<div class="card p-3">
-  <div class="d-flex justify-content-between align-items-center mb-2">
-    <h6 class="fw-bold mb-0">Pending Bills</h6>
-    <span class="badge bg-warning text-dark rounded-pill">{{ pending_claims|length }}</span>
-  </div>
-  {% if pending_claims %}
     {% for c in pending_claims %}
-      <div class="p-3 rounded-3 bg-light mb-2">
+      {% set is_dep = (c.category == "Monthly Deposit (Per Person)") %}
+      <div class="border rounded-3 p-2 mb-2 bg-light">
         <div class="d-flex justify-content-between align-items-start">
           <div>
-            <div class="fw-bold">{{ c.user.name }} • ₹{{ "%.2f"|format(c.amount) }}</div>
-            <div class="small text-muted">{{ c.remarks }}</div>
-            <div class="text-secondary" style="font-size: 0.75rem;">{{ c.category }} • {{ c.created_at.strftime('%d %b, %I:%M %p') }}</div>
+            <div class="fw-bold small">{{ c.user.name }} • ₹{{ "%.2f"|format(c.amount) }}</div>
+            <div class="small">
+              <span class="badge {{ 'bg-success' if is_dep else 'bg-danger' }}">{{ 'CREDIT' if is_dep else 'DEBIT' }}</span>
+              <span class="badge bg-dark">{{ c.category }}</span>
+            </div>
+            <div class="small text-muted mt-1">{{ c.remarks }}</div>
           </div>
-          <span class="badge bg-secondary-subtle text-dark">Pending</span>
-        </div>
-        {% if is_cashier %}
-          <div class="d-flex gap-2 mt-2">
+          <div class="d-flex gap-1">
             <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='approve') }}">
               <button class="btn btn-sm btn-success rounded-pill px-3">Approve</button>
             </form>
             <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='reject') }}">
-              <button class="btn btn-sm btn-outline-danger rounded-pill px-3">Reject</button>
+              <button class="btn btn-sm btn-outline-danger rounded-pill px-2">Reject</button>
             </form>
           </div>
-        {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <p class="text-muted small mb-0">No pending bill claims right now.</p>
+    {% endfor %}
+  </div>
+
+  <!-- 2. Pending Team Leave Requests -->
+  {% if pending_leave_requests %}
+  <div class="card p-3 mb-3 border-danger">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="fw-bold mb-0 text-danger"><i class="bi bi-door-open me-1"></i>Pending Team Leave Requests</h6>
+      <span class="badge bg-danger rounded-pill">{{ pending_leave_requests|length }}</span>
+    </div>
+    {% for lr in pending_leave_requests %}
+      <div class="border rounded-3 p-2 mb-2 bg-light d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div>
+          <div class="fw-bold small">{{ lr.user.name }} wants to leave {{ active_team.name }}</div>
+          <div class="small text-muted">{{ lr.reason or 'No reason specified' }}</div>
+        </div>
+        <div class="d-flex gap-1">
+          <form method="POST" action="{{ url_for('process_leave_request', req_id=lr.id, action='approve') }}">
+            <button class="btn btn-sm btn-danger rounded-pill px-3">Approve Leave</button>
+          </form>
+          <form method="POST" action="{{ url_for('process_leave_request', req_id=lr.id, action='reject') }}">
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2">Reject</button>
+          </form>
+        </div>
       </div>
     {% endfor %}
-  {% else %}
-    <p class="text-muted small mb-0">No pending bill approvals.</p>
+  </div>
   {% endif %}
+{% endif %}
+
+<!-- Category Breakdown -->
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-2">This Month's Expense Breakdown</h6>
+  {% for cat in categories %}
+    {% if cat != "Monthly Deposit (Per Person)" %}
+      <div class="d-flex justify-content-between py-2 border-bottom small">
+        <span>{{ cat }}</span>
+        <span class="fw-semibold">₹{{ "%.2f"|format(category_totals[cat]) }}</span>
+      </div>
+    {% endif %}
+  {% endfor %}
 </div>
+
+<!-- Cashier Direct Pool Entry OR Member Bill Submission -->
+{% if is_cashier %}
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-2">Cashier: Update Team Pool</h6>
+  <form method="POST" action="{{ url_for('cashier_transaction') }}" class="row g-2">
+    <div class="col-6">
+      <select name="tx_type" class="form-select form-select-sm" required>
+        <option value="opening">Opening Balance</option>
+        <option value="credit">Credit (+ Add)</option>
+        <option value="debit">Debit (- Expense)</option>
+      </select>
+    </div>
+    <div class="col-6">
+      <input type="number" step="0.01" name="amount" class="form-control form-control-sm" placeholder="Amount (₹)" required>
+    </div>
+    <div class="col-6">
+      <select name="category" class="form-select form-select-sm" required>
+        {% for cat in categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6">
+      <select name="user_id" class="form-select form-select-sm">
+        <option value="">General Pool (All)</option>
+        {% for m in members %}
+          <option value="{{ m.id }}">{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Remarks" required>
+    </div>
+    <div class="col-12">
+      <button class="btn btn-primary btn-sm w-100 rounded-pill">Save Record</button>
+    </div>
+  </form>
+</div>
+{% else %}
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-1">Share Bill / Deposit with Cashier</h6>
+  <p class="small text-muted mb-2">Monthly Deposit counts as <strong>Credit</strong>; all other categories count as <strong>Debit</strong> once approved.</p>
+  <form method="POST" action="{{ url_for('submit_claim') }}" class="row g-2">
+    <div class="col-6">
+      <input type="number" step="0.01" name="amount" class="form-control form-control-sm" placeholder="Amount (₹)" required>
+    </div>
+    <div class="col-6">
+      <select name="category" class="form-select form-select-sm" required>
+        <option value="Expenses">Expenses (Debit)</option>
+        <option value="Room Rent">Room Rent (Debit)</option>
+        <option value="Outside Shopping">Outside Shopping (Debit)</option>
+        <option value="Outside Food">Outside Food (Debit)</option>
+        <option value="Monthly Deposit (Per Person)">Monthly Deposit (Credit)</option>
+      </select>
+    </div>
+    <div class="col-12">
+      <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Remarks (what was paid/deposited)" required>
+    </div>
+    <div class="col-12">
+      <button class="btn btn-success btn-sm w-100 rounded-pill">Submit for Cashier Approval</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 {% endblock %}
