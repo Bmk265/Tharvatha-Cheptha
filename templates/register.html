@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card p-4 mx-auto mt-4" style="max-width: 410px;">
+<div class="card p-4 mx-auto mt-3" style="max-width: 420px;">
   <div class="text-center mb-3">
-    <span class="badge bg-primary bg-opacity-10 text-primary px-3 py-1 rounded-pill mb-2">TeamPool Treasury</span>
+    <img src="{{ url_for('static', filename='logo.png') }}"
+         alt="TEAM POOL Logo"
+         width="88"
+         height="88"
+         class="rounded-4 object-fit-cover shadow-sm border mb-2">
     <h4 class="fw-bold mb-1">Create Account</h4>
-    <p class="text-muted small mb-0">Register first, then create a workspace or open a team invite link</p>
+    <p class="text-muted small mb-0">Join TEAM POOL and create a workspace or open a team invite link</p>
   </div>
   <form method="POST">
     <div class="mb-3">
