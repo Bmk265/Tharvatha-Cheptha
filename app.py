@@ -745,6 +745,29 @@ def dashboard():
     pending_debits = sum(c.amount for c in pending_claims if c.category != "Monthly Deposit")
     projected_balance = available_balance + pending_credits - pending_debits
 
+    pending_by_user_map = {}
+    for c in pending_claims:
+        uid = c.user_id
+        if uid not in pending_by_user_map:
+            pending_by_user_map[uid] = {
+                'user_id': uid,
+                'user_name': c.user.name if c.user else 'Unknown',
+                'total_amount': 0.0,
+                'count': 0,
+                'items': []
+            }
+        pending_by_user_map[uid]['total_amount'] += c.amount
+        pending_by_user_map[uid]['count'] += 1
+        pending_by_user_map[uid]['items'].append({
+            'id': c.id,
+            'category': c.category,
+            'is_deposit': (c.category == "Monthly Deposit"),
+            'amount': c.amount,
+            'remarks': c.remarks,
+            'date': c.created_at.strftime('%d %b %Y, %I:%M %p')
+        })
+    pending_by_user = sorted(pending_by_user_map.values(), key=lambda x: x['total_amount'], reverse=True)
+
     pending_leave_requests = LeaveRequest.query.filter_by(team_id=team.id, status='pending').order_by(LeaveRequest.created_at.desc()).all()
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all()
     members = sorted([m.user for m in team_memberships if m.user], key=lambda u: u.name.lower())
@@ -770,6 +793,7 @@ def dashboard():
         pending_credits=pending_credits,
         pending_debits=pending_debits,
         projected_balance=projected_balance,
+        pending_by_user=pending_by_user,
         month_bills=month_bills,
         pending_leave_requests=pending_leave_requests,
         members=members,
