@@ -84,8 +84,8 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     avatar_path = db.Column(db.String(255), nullable=True)
-    role = db.Column(db.String(20), default='member')  # legacy fallback
-    personal_balance = db.Column(db.Float, default=0.0)  # legacy fallback
+    role = db.Column(db.String(20), default='member')
+    personal_balance = db.Column(db.Float, default=0.0)
     active_team_id = db.Column(db.Integer, nullable=True)
 
 
@@ -140,11 +140,27 @@ class FeedPost(db.Model):
     tag = db.Column(db.String(40), default='Update')
     content = db.Column(db.Text, nullable=False)
     image_path = db.Column(db.String(255), nullable=True)
+    poll_question = db.Column(db.String(255), nullable=True)
     shares_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.now)
     author = db.relationship('User', backref='feed_posts')
     likes = db.relationship('FeedLike', backref='post', cascade='all, delete-orphan')
     comments = db.relationship('FeedComment', backref='post', cascade='all, delete-orphan', order_by='FeedComment.created_at.asc()')
+    poll_options = db.relationship('PollOption', backref='post', cascade='all, delete-orphan', order_by='PollOption.id.asc()')
+
+
+class PollOption(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('feed_post.id'), nullable=False)
+    option_text = db.Column(db.String(160), nullable=False)
+    votes = db.relationship('PollVote', backref='option', cascade='all, delete-orphan')
+
+
+class PollVote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('feed_post.id'), nullable=False)
+    option_id = db.Column(db.Integer, db.ForeignKey('poll_option.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
 
 class FeedLike(db.Model):
@@ -177,7 +193,7 @@ def ensure_schema_and_default_team():
         'bill_claim': [('team_id', 'INTEGER')],
         'personal_transaction': [('team_id', 'INTEGER')],
         'chat_message': [('team_id', 'INTEGER')],
-        'feed_post': [('image_path', 'VARCHAR(255)')],
+        'feed_post': [('image_path', 'VARCHAR(255)'), ('poll_question', 'VARCHAR(255)')],
     }
     for tbl, cols in table_columns.items():
         if tbl in inspector.get_table_names():
@@ -232,7 +248,7 @@ def team_and_cashier_required(f):
             flash("Join or create a team first from your Profile.", "warning")
             return redirect(url_for('profile'))
         if membership.role != 'cashier':
-            flash("Only this team's Cashier can perform this action.", "danger")
+            flash("Only a Cashier of this team can perform this action.", "danger")
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated
@@ -387,12 +403,12 @@ def leave_team():
         return redirect(url_for('profile'))
 
     team = membership.team
-    was_cashier = (membership.role == 'cashier')
     db.session.delete(membership)
     db.session.flush()
 
     remaining = TeamMembership.query.filter_by(team_id=team_id).order_by(TeamMembership.id.asc()).all()
-    if was_cashier and remaining:
+    has_cashier = any(m.role == 'cashier' for m in remaining)
+    if remaining and not has_cashier:
         remaining[0].role = 'cashier'
         if remaining[0].user:
             remaining[0].user.role = 'cashier'
@@ -660,6 +676,15 @@ def feed():
     if request.method == 'POST':
         content = request.form.get('content', '').strip()
         tag = request.form.get('tag', 'Update').strip() or 'Update'
+        poll_question = request.form.get('poll_question', '').strip()
+        raw_options = [
+            request.form.get('poll_opt_1', '').strip(),
+            request.form.get('poll_opt_2', '').strip(),
+            request.form.get('poll_opt_3', '').strip(),
+            request.form.get('poll_opt_4', '').strip(),
+        ]
+        valid_options = [opt for opt in raw_options if opt]
+
         photo_file = request.files.get('photo')
         image_rel_path = _save_uploaded_image(photo_file) if photo_file and photo_file.filename else None
 
@@ -667,21 +692,51 @@ def feed():
             flash("Unsupported image format. Use PNG, JPG, JPEG, GIF, or WEBP.", "warning")
             return redirect(url_for('feed'))
 
-        if content or image_rel_path:
-            db.session.add(FeedPost(
+        if poll_question and len(valid_options) < 2:
+            flash("Please provide at least 2 options for a poll.", "warning")
+            return redirect(url_for('feed'))
+
+        if content or image_rel_path or (poll_question and len(valid_options) >= 2):
+            post = FeedPost(
                 team_id=team.id,
                 user_id=current_user.id,
-                tag=tag,
+                tag="Poll" if poll_question else tag,
                 content=content or "",
-                image_path=image_rel_path
-            ))
+                image_path=image_rel_path,
+                poll_question=poll_question or None
+            )
+            db.session.add(post)
+            db.session.flush()
+
+            if poll_question and len(valid_options) >= 2:
+                for opt_text in valid_options:
+                    db.session.add(PollOption(post_id=post.id, option_text=opt_text))
+
             db.session.commit()
             flash("Posted to team feed!", "success")
         return redirect(url_for('feed'))
 
     posts = FeedPost.query.filter_by(team_id=team.id).order_by(FeedPost.created_at.desc()).all()
     liked_post_ids = {lk.post_id for lk in FeedLike.query.filter_by(user_id=current_user.id).all()}
-    return render_template('feed.html', posts=posts, liked_post_ids=liked_post_ids)
+    user_votes = {v.post_id: v.option_id for v in PollVote.query.filter_by(user_id=current_user.id).all()}
+    return render_template('feed.html', posts=posts, liked_post_ids=liked_post_ids, user_votes=user_votes)
+
+
+@app.route('/feed/<int:post_id>/vote', methods=['POST'])
+@login_required
+def vote_poll(post_id):
+    team, _ = get_active_team_context()
+    post = FeedPost.query.filter_by(id=post_id, team_id=team.id).first_or_404()
+    option_id = int(request.form['option_id'])
+    option = PollOption.query.filter_by(id=option_id, post_id=post.id).first_or_404()
+
+    existing_vote = PollVote.query.filter_by(post_id=post.id, user_id=current_user.id).first()
+    if existing_vote:
+        existing_vote.option_id = option.id
+    else:
+        db.session.add(PollVote(post_id=post.id, option_id=option.id, user_id=current_user.id))
+    db.session.commit()
+    return redirect(url_for('feed') + f"#post-{post.id}")
 
 
 @app.route('/feed/<int:post_id>/like', methods=['POST'])
@@ -774,19 +829,35 @@ def profile():
     )
 
 
-@app.route('/profile/transfer-cashier/<int:user_id>', methods=['POST'])
+@app.route('/profile/cashier-role/<int:user_id>', methods=['POST'])
 @login_required
 @team_and_cashier_required
-def transfer_cashier(user_id):
+def manage_cashier_role(user_id):
     team, current_membership = get_active_team_context()
     target_membership = TeamMembership.query.filter_by(team_id=team.id, user_id=user_id).first_or_404()
-    current_membership.role = 'member'
-    target_membership.role = 'cashier'
-    current_user.role = 'member'
-    target_membership.user.role = 'cashier'
+    mode = request.form.get('mode', 'co_cashier')  # 'co_cashier', 'transfer', or 'remove_cashier'
+
+    if mode == 'co_cashier':
+        target_membership.role = 'cashier'
+        target_membership.user.role = 'cashier'
+        flash(f"{target_membership.user.name} is now also a Cashier for '{team.name}' (you remain Cashier too).", "success")
+    elif mode == 'transfer':
+        current_membership.role = 'member'
+        target_membership.role = 'cashier'
+        current_user.role = 'member'
+        target_membership.user.role = 'cashier'
+        flash(f"Transferred Cashier role to {target_membership.user.name}.", "success")
+    elif mode == 'remove_cashier':
+        cashier_count = TeamMembership.query.filter_by(team_id=team.id, role='cashier').count()
+        if cashier_count <= 1:
+            flash("At least one Cashier is required for the team.", "warning")
+        else:
+            target_membership.role = 'member'
+            target_membership.user.role = 'member'
+            flash(f"{target_membership.user.name} is now a regular Member.", "info")
+
     db.session.commit()
-    flash(f"{target_membership.user.name} is now Cashier for '{team.name}'.", "success")
-    return redirect(url_for('profile'))
+    return redirect(request.referrer or url_for('profile'))
 
 
 with app.app_context():
