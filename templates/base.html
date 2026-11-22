@@ -56,7 +56,7 @@
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       color: #fff;
-      padding: 10px 16px;
+      padding: 10px 14px;
       position: sticky;
       top: 0;
       z-index: 1020;
@@ -65,13 +65,13 @@
     .brand-logo-wrap {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       text-decoration: none;
       color: #fff;
     }
     .header-logo-img {
-      width: 36px;
-      height: 36px;
+      width: 34px;
+      height: 34px;
       border-radius: 10px;
       object-fit: cover;
       border: 1px solid rgba(255, 255, 255, 0.18);
@@ -193,9 +193,9 @@
       border: 1px solid rgba(252, 211, 77, 0.35);
     }
     .team-switcher-select {
-      max-width: 135px;
+      max-width: 105px;
       min-height: 32px !important;
-      font-size: 0.78rem !important;
+      font-size: 0.76rem !important;
       padding-top: 2px;
       padding-bottom: 2px;
     }
@@ -209,9 +209,9 @@
     <div class="d-flex align-items-center gap-2 min-w-0">
       <a href="{{ url_for('dashboard') if current_user.is_authenticated else url_for('login') }}" class="brand-logo-wrap">
         <img src="{{ url_for('static', filename='logo.png') }}" alt="TEAM POOL Logo" class="header-logo-img">
-        <div class="lh-1">
-          <div class="brand-font fw-bold" style="font-size: 0.98rem;">TEAM POOL</div>
-          <div style="font-size: 0.62rem; color: #94a3b8; letter-spacing: 0.06em;">TREASURY LEDGER</div>
+        <div class="lh-1 text-truncate">
+          <div class="brand-font fw-bold text-truncate" style="font-size: 0.92rem;">TEAM POOL</div>
+          <div class="text-truncate" style="font-size: 0.58rem; color: #94a3b8; letter-spacing: 0.05em;">TREASURY LEDGER</div>
         </div>
       </a>
 
@@ -225,7 +225,7 @@
     </div>
 
     {% if current_user.is_authenticated %}
-      <div class="d-flex align-items-center gap-2">
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
         {% if user_teams %}
           <form method="POST" action="{{ url_for('switch_team') }}" class="m-0">
             <select name="team_id" class="form-select form-select-sm bg-dark text-white border-secondary rounded-pill team-switcher-select" onchange="this.form.submit()" aria-label="Switch Team">
@@ -236,7 +236,7 @@
           </form>
         {% endif %}
 
-        <button type="button" class="btn btn-sm btn-dark border-secondary rounded-pill position-relative px-2" data-bs-toggle="modal" data-bs-target="#notificationsModal" aria-label="Notifications">
+        <button type="button" class="btn btn-sm btn-dark border-secondary rounded-pill position-relative px-2 flex-shrink-0" data-bs-toggle="modal" data-bs-target="#notificationsModal" aria-label="Notifications">
           <i class="bi bi-bell-fill"></i>
           {% if unread_notifications_count > 0 %}
             <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem;">
@@ -245,7 +245,7 @@
           {% endif %}
         </button>
 
-        <a href="{{ url_for('profile') }}" class="text-decoration-none" title="Profile">
+        <a href="{{ url_for('profile') }}" class="text-decoration-none flex-shrink-0" title="Profile">
           {% if current_user.avatar_path %}
             <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-sm border border-light">
           {% else %}
