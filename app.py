@@ -62,7 +62,7 @@ class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     city = db.Column(db.String(100), nullable=True)
-    invite_code = db.Column(db.String(24), unique=True, nullable=False)
+    invite_code = db.Column(db.String(32), unique=True, nullable=False)
     created_by = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
@@ -95,6 +95,7 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     avatar_path = db.Column(db.String(255), nullable=True)
+    is_super_admin = db.Column(db.Boolean, default=False)
     role = db.Column(db.String(20), default='member')
     personal_balance = db.Column(db.Float, default=0.0)
     active_team_id = db.Column(db.Integer, nullable=True)
@@ -199,7 +200,11 @@ def ensure_schema_and_default_team():
     inspector = inspect(db.engine)
 
     table_columns = {
-        'user': [('active_team_id', 'INTEGER'), ('avatar_path', 'VARCHAR(255)')],
+        'user': [
+            ('active_team_id', 'INTEGER'),
+            ('avatar_path', 'VARCHAR(255)'),
+            ('is_super_admin', 'BOOLEAN DEFAULT FALSE'),
+        ],
         'pool_ledger': [('team_id', 'INTEGER')],
         'bill_claim': [('team_id', 'INTEGER')],
         'personal_transaction': [('team_id', 'INTEGER')],
@@ -213,6 +218,13 @@ def ensure_schema_and_default_team():
                 if col_name not in existing:
                     db.session.execute(text(f'ALTER TABLE "{tbl}" ADD COLUMN {col_name} {col_type}'))
     db.session.commit()
+
+    # Ensure first user in the system is Super Admin if none exists
+    if User.query.count() > 0 and not User.query.filter_by(is_super_admin=True).first():
+        first_user = User.query.order_by(User.id.asc()).first()
+        if first_user:
+            first_user.is_super_admin = True
+            db.session.commit()
 
 
 def get_active_team_context():
@@ -237,17 +249,20 @@ def inject_globals():
     if current_user.is_authenticated:
         team, membership = get_active_team_context()
         all_memberships = TeamMembership.query.filter_by(user_id=current_user.id).all()
+        is_super = bool(getattr(current_user, 'is_super_admin', False))
         return {
             'active_team': team,
             'active_membership': membership,
             'user_teams': [m.team for m in all_memberships if m.team],
-            'is_cashier': (membership.role == 'cashier') if membership else False
+            'is_cashier': ((membership.role == 'cashier') if membership else False) or is_super,
+            'is_super_admin': is_super
         }
     return {
         'active_team': None,
         'active_membership': None,
         'user_teams': [],
-        'is_cashier': False
+        'is_cashier': False,
+        'is_super_admin': False
     }
 
 
@@ -255,6 +270,9 @@ def team_and_cashier_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         team, membership = get_active_team_context()
+        is_super = bool(getattr(current_user, 'is_super_admin', False))
+        if is_super:
+            return f(*args, **kwargs)
         if not team or not membership:
             flash("Join or create a team first from your Profile.", "warning")
             return redirect(url_for('profile'))
@@ -265,13 +283,21 @@ def team_and_cashier_required(f):
     return decorated
 
 
+def super_admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not getattr(current_user, 'is_super_admin', False):
+            flash("Only the Super Admin can perform this action.", "danger")
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
 def _unique_invite_code(base_name):
     clean = ''.join(ch for ch in base_name.upper() if ch.isalnum())[:6] or "TEAM"
-    code = f"{clean}{datetime.now().strftime('%H%M')}"
-    counter = 1
+    code = f"{clean}_{uuid.uuid4().hex[:6].upper()}"
     while Team.query.filter_by(invite_code=code).first():
-        code = f"{clean}{counter}"
-        counter += 1
+        code = f"{clean}_{uuid.uuid4().hex[:6].upper()}"
     return code
 
 
@@ -322,15 +348,20 @@ def register():
             flash("Email already registered.", "danger")
             return redirect(url_for('register'))
 
+        is_first_user = (User.query.count() == 0)
         user = User(
             name=name,
             email=email,
             password_hash=generate_password_hash(password),
-            role='member'
+            is_super_admin=is_first_user,
+            role='cashier' if is_first_user else 'member'
         )
         db.session.add(user)
         db.session.commit()
-        flash("Account created! Please log in, then create or join a team.", "success")
+        if is_first_user:
+            flash("Account created! As the first user, you are assigned SUPER ADMIN.", "success")
+        else:
+            flash("Account created! Please log in, then create a team or join via an invite link.", "success")
         return redirect(url_for('login'))
 
     return render_template('register.html')
@@ -346,7 +377,7 @@ def login():
             login_user(user)
             team, _ = get_active_team_context()
             if not team:
-                flash("Logged in! Create or join a team from your Profile to get started.", "info")
+                flash("Logged in! Create a team or join using a team invite link from your Profile.", "info")
                 return redirect(url_for('profile'))
             return redirect(url_for('dashboard'))
         flash("Invalid email or password.", "danger")
@@ -360,7 +391,7 @@ def logout():
     return redirect(url_for('login'))
 
 
-# ---------------- TEAM SWITCH / CREATE / JOIN / LEAVE ----------------
+# ---------------- TEAM SWITCH / CREATE / INVITE-LINK JOIN / LEAVE ----------------
 @app.route('/team/switch', methods=['POST'])
 @login_required
 def switch_team():
@@ -401,17 +432,16 @@ def create_team():
     current_user.active_team_id = team.id
     current_user.role = 'cashier'
     db.session.commit()
-    flash(f"Created team '{team.name}' (Invite Code: {team.invite_code}). You are Cashier.", "success")
+    flash(f"Created team '{team.name}'! Share its invite link from Profile to invite members.", "success")
     return redirect(url_for('dashboard'))
 
 
-@app.route('/team/join', methods=['POST'])
+@app.route('/join/<code>', methods=['GET', 'POST'])
 @login_required
-def join_team():
-    code = request.form['invite_code'].strip().upper()
-    team = Team.query.filter_by(invite_code=code).first()
+def join_via_invite_link(code):
+    team = Team.query.filter_by(invite_code=code.strip()).first()
     if not team:
-        flash("No team found with that invite code.", "danger")
+        flash("Invalid or expired team invite link.", "danger")
         return redirect(url_for('profile'))
 
     existing = TeamMembership.query.filter_by(team_id=team.id, user_id=current_user.id).first()
@@ -424,7 +454,7 @@ def join_team():
         ))
     current_user.active_team_id = team.id
     db.session.commit()
-    flash(f"Joined team '{team.name}'!", "success")
+    flash(f"Joined team '{team.name}' via invite link!", "success")
     return redirect(url_for('dashboard'))
 
 
@@ -448,15 +478,12 @@ def leave_team():
     team = membership.team
     all_members = TeamMembership.query.filter_by(team_id=team_id).all()
 
-    # If user is the sole member in the team, allow immediate exit
     if len(all_members) <= 1:
         _remove_member_from_team(team_id, current_user.id)
         db.session.commit()
         flash(f"You left '{team.name}'.", "info")
         return redirect(url_for('profile'))
 
-    # If user is a Cashier and other cashiers exist, allow immediate exit;
-    # if they are the ONLY Cashier, require assigning another Cashier first.
     if membership.role == 'cashier':
         other_cashiers = [m for m in all_members if m.role == 'cashier' and m.user_id != current_user.id]
         if not other_cashiers:
@@ -467,7 +494,6 @@ def leave_team():
         flash(f"You left '{team.name}'.", "info")
         return redirect(url_for('profile'))
 
-    # Regular member: create a pending LeaveRequest for Cashier approval
     existing_req = LeaveRequest.query.filter_by(team_id=team_id, user_id=current_user.id, status='pending').first()
     if existing_req:
         flash("Your request to leave this team is already pending Cashier approval.", "info")
@@ -538,6 +564,11 @@ def dashboard():
     team_memberships = TeamMembership.query.filter_by(team_id=team.id).all()
     members = sorted([m.user for m in team_memberships if m.user], key=lambda u: u.name.lower())
 
+    all_teams = Team.query.order_by(Team.created_at.desc()).all() if current_user.is_super_admin else []
+    all_users = User.query.order_by(User.id.asc()).all() if current_user.is_super_admin else []
+    all_ledger_entries = PoolLedger.query.order_by(PoolLedger.created_at.desc()).limit(50).all() if current_user.is_super_admin else []
+    all_claims = BillClaim.query.order_by(BillClaim.created_at.desc()).limit(50).all() if current_user.is_super_admin else []
+
     return render_template(
         'dashboard.html',
         available_balance=available_balance,
@@ -548,7 +579,11 @@ def dashboard():
         pending_claims=pending_claims,
         pending_leave_requests=pending_leave_requests,
         members=members,
-        team_memberships=team_memberships
+        team_memberships=team_memberships,
+        all_teams=all_teams,
+        all_users=all_users,
+        all_ledger_entries=all_ledger_entries,
+        all_claims=all_claims
     )
 
 
@@ -607,7 +642,7 @@ def cashier_transaction():
 def submit_claim():
     team, _ = get_active_team_context()
     if not team:
-        flash("Join or create a team first.", "warning")
+        flash("Create a team or join via an invite link first.", "warning")
         return redirect(url_for('profile'))
 
     amount = float(request.form['amount'])
@@ -635,8 +670,7 @@ def submit_claim():
 @login_required
 @team_and_cashier_required
 def process_claim(claim_id, action):
-    team, _ = get_active_team_context()
-    claim = BillClaim.query.filter_by(id=claim_id, team_id=team.id).first_or_404()
+    claim = BillClaim.query.get_or_404(claim_id)
     if claim.status != 'pending':
         flash("Claim already processed.", "warning")
         return redirect(url_for('dashboard'))
@@ -647,7 +681,7 @@ def process_claim(claim_id, action):
         ledger_type = 'credit' if is_deposit else 'debit'
 
         pool_entry = PoolLedger(
-            team_id=team.id,
+            team_id=claim.team_id,
             tx_type=ledger_type,
             amount=claim.amount,
             category=claim.category,
@@ -656,7 +690,7 @@ def process_claim(claim_id, action):
         )
         db.session.add(pool_entry)
 
-        tm = TeamMembership.query.filter_by(team_id=team.id, user_id=claim.user_id).first()
+        tm = TeamMembership.query.filter_by(team_id=claim.team_id, user_id=claim.user_id).first()
         if tm:
             if is_deposit:
                 tm.personal_balance += claim.amount
@@ -664,7 +698,7 @@ def process_claim(claim_id, action):
                 tm.personal_balance -= claim.amount
 
         personal_entry = PersonalTransaction(
-            team_id=team.id,
+            team_id=claim.team_id,
             user_id=claim.user_id,
             tx_type=ledger_type,
             amount=claim.amount,
@@ -682,6 +716,28 @@ def process_claim(claim_id, action):
     return redirect(url_for('dashboard'))
 
 
+@app.route('/super-admin/delete-ledger/<int:entry_id>', methods=['POST'])
+@login_required
+@super_admin_required
+def super_admin_delete_ledger(entry_id):
+    entry = PoolLedger.query.get_or_404(entry_id)
+    db.session.delete(entry)
+    db.session.commit()
+    flash("Ledger transaction deleted by Super Admin.", "info")
+    return redirect(request.referrer or url_for('dashboard'))
+
+
+@app.route('/super-admin/delete-claim/<int:claim_id>', methods=['POST'])
+@login_required
+@super_admin_required
+def super_admin_delete_claim(claim_id):
+    claim = BillClaim.query.get_or_404(claim_id)
+    db.session.delete(claim)
+    db.session.commit()
+    flash("Bill claim deleted by Super Admin.", "info")
+    return redirect(request.referrer or url_for('dashboard'))
+
+
 @app.route('/my-transactions')
 @login_required
 def my_transactions():
@@ -690,7 +746,7 @@ def my_transactions():
         return redirect(url_for('profile'))
 
     selected_user_id = current_user.id
-    if membership.role == 'cashier' and request.args.get('user_id'):
+    if (membership.role == 'cashier' or current_user.is_super_admin) and request.args.get('user_id'):
         selected_user_id = int(request.args.get('user_id'))
 
     viewed_user = User.query.get_or_404(selected_user_id)
@@ -908,11 +964,16 @@ def profile():
     pending_my_leave_team_ids = {
         lr.team_id for lr in LeaveRequest.query.filter_by(user_id=current_user.id, status='pending').all()
     }
+    all_teams = Team.query.order_by(Team.created_at.desc()).all() if current_user.is_super_admin else []
+    all_users = User.query.order_by(User.id.asc()).all() if current_user.is_super_admin else []
+
     return render_template(
         'profile.html',
         team_memberships=team_memberships,
         user_memberships=user_memberships,
-        pending_my_leave_team_ids=pending_my_leave_team_ids
+        pending_my_leave_team_ids=pending_my_leave_team_ids,
+        all_teams=all_teams,
+        all_users=all_users
     )
 
 
@@ -927,9 +988,10 @@ def manage_cashier_role(user_id):
     if mode == 'co_cashier':
         target_membership.role = 'cashier'
         target_membership.user.role = 'cashier'
-        flash(f"{target_membership.user.name} is now also a Cashier for '{team.name}' (you remain Cashier too).", "success")
+        flash(f"{target_membership.user.name} is now also a Cashier for '{team.name}'.", "success")
     elif mode == 'transfer':
-        current_membership.role = 'member'
+        if current_membership:
+            current_membership.role = 'member'
         target_membership.role = 'cashier'
         current_user.role = 'member'
         target_membership.user.role = 'cashier'
