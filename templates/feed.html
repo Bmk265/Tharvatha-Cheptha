@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
-<!-- Create Post Box -->
+<!-- Create Post / Poll Box -->
 <div class="card p-3 mb-3">
-  <h6 class="fw-bold mb-2"><i class="bi bi-camera me-1 text-primary"></i>New Feed Post — {{ active_team.name }}</h6>
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="fw-bold mb-0"><i class="bi bi-camera me-1 text-primary"></i>Share with {{ active_team.name }}</h6>
+    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill" data-bs-toggle="collapse" data-bs-target="#pollCreatorBox">
+      <i class="bi bi-bar-chart-line me-1"></i>+ Add Poll
+    </button>
+  </div>
+
   <form method="POST" enctype="multipart/form-data">
     <div class="d-flex gap-2 mb-2 align-items-center flex-wrap">
       <select name="tag" class="form-select form-select-sm w-auto rounded-pill">
@@ -12,7 +18,7 @@
         <option value="Room Life">Room Life</option>
       </select>
       <label class="btn btn-sm btn-outline-secondary rounded-pill mb-0">
-        <i class="bi bi-image me-1"></i>Choose Photo
+        <i class="bi bi-image me-1"></i>Photo
         <input type="file" name="photo" id="feedPhotoInput" accept="image/*" class="d-none" onchange="previewFeedPhoto(this)">
       </label>
       <span id="feedPhotoName" class="small text-muted"></span>
@@ -22,8 +28,20 @@
       <img id="feedPhotoPreview" src="" alt="Preview" class="img-fluid rounded-3 border" style="max-height: 260px; width: 100%; object-fit: cover;">
     </div>
 
-    <textarea name="content" rows="2" class="form-control form-control-sm mb-2" placeholder="Write a caption or share a room/bill update..."></textarea>
-    <button class="btn btn-primary btn-sm rounded-pill px-4">Share Post</button>
+    <!-- Collapsible Poll Builder -->
+    <div class="collapse bg-light p-3 rounded-3 mb-2 border" id="pollCreatorBox">
+      <div class="small fw-bold text-primary mb-2"><i class="bi bi-bar-chart-fill me-1"></i>Create a Team Poll</div>
+      <input type="text" name="poll_question" class="form-control form-control-sm mb-2" placeholder="Ask your team a question (e.g., What should we cook tonight?)">
+      <div class="row g-2">
+        <div class="col-6"><input type="text" name="poll_opt_1" class="form-control form-control-sm" placeholder="Option 1"></div>
+        <div class="col-6"><input type="text" name="poll_opt_2" class="form-control form-control-sm" placeholder="Option 2"></div>
+        <div class="col-6"><input type="text" name="poll_opt_3" class="form-control form-control-sm" placeholder="Option 3 (optional)"></div>
+        <div class="col-6"><input type="text" name="poll_opt_4" class="form-control form-control-sm" placeholder="Option 4 (optional)"></div>
+      </div>
+    </div>
+
+    <textarea name="content" rows="2" class="form-control form-control-sm mb-2" placeholder="Write a caption or note (optional if posting a photo or poll)..."></textarea>
+    <button class="btn btn-primary btn-sm rounded-pill px-4">Publish Post</button>
   </form>
 </div>
 
@@ -53,8 +71,42 @@
       </div>
     {% endif %}
 
-    <!-- Action Bar + Caption + Comments -->
     <div class="p-3">
+      <!-- Interactive Poll Card (if post has a poll) -->
+      {% if p.poll_question and p.poll_options %}
+        {% set ns = namespace(total_votes=0) %}
+        {% for opt in p.poll_options %}
+          {% set ns.total_votes = ns.total_votes + (opt.votes|length) %}
+        {% endfor %}
+        {% set my_choice = user_votes.get(p.id) %}
+
+        <div class="bg-light border rounded-4 p-3 mb-3">
+          <div class="fw-bold small mb-2"><i class="bi bi-bar-chart-fill text-primary me-1"></i>{{ p.poll_question }}</div>
+          {% for opt in p.poll_options %}
+            {% set v_count = opt.votes|length %}
+            {% set pct = ((v_count / ns.total_votes * 100) if ns.total_votes > 0 else 0) %}
+            {% set is_selected = (my_choice == opt.id) %}
+            <form method="POST" action="{{ url_for('vote_poll', post_id=p.id) }}" class="mb-2">
+              <input type="hidden" name="option_id" value="{{ opt.id }}">
+              <button type="submit" class="btn w-100 text-start p-2 rounded-3 border {{ 'border-primary bg-primary bg-opacity-10' if is_selected else 'bg-white' }}">
+                <div class="d-flex justify-content-between small fw-semibold mb-1">
+                  <span>
+                    {% if is_selected %}<i class="bi bi-check-circle-fill text-primary me-1"></i>{% endif %}
+                    {{ opt.option_text }}
+                  </span>
+                  <span>{{ v_count }} ({{ '%.0f'|format(pct) }}%)</span>
+                </div>
+                <div class="progress" style="height: 5px;">
+                  <div class="progress-bar {{ 'bg-primary' if is_selected else 'bg-secondary' }}" style="width: {{ '%.1f'|format(pct) }}%;"></div>
+                </div>
+              </button>
+            </form>
+          {% endfor %}
+          <div class="text-muted" style="font-size: 0.72rem;">{{ ns.total_votes }} total vote{{ '' if ns.total_votes == 1 else 's' }} • Tap an option to vote</div>
+        </div>
+      {% endif %}
+
+      <!-- Action Bar -->
       <div class="d-flex align-items-center gap-2 mb-2">
         <form method="POST" action="{{ url_for('toggle_like', post_id=p.id) }}" class="m-0">
           <button class="btn btn-sm {{ 'btn-danger' if p.id in liked_post_ids else 'btn-light' }} rounded-pill px-3">
@@ -66,7 +118,7 @@
           <i class="bi bi-chat"></i> {{ p.comments|length }}
         </button>
 
-        <button type="button" class="btn btn-sm btn-light rounded-pill px-3" onclick="sharePost({{ p.id }}, {{ p.content|tojson }})">
+        <button type="button" class="btn btn-sm btn-light rounded-pill px-3" onclick="sharePost({{ p.id }}, {{ (p.poll_question or p.content)|tojson }})">
           <i class="bi bi-send"></i> <span id="share-count-{{ p.id }}">{{ p.shares_count or 0 }}</span>
         </button>
       </div>
@@ -97,7 +149,7 @@
   </article>
 {% else %}
   <div class="card p-4 text-center text-muted small">
-    No posts yet. Tap <strong>+</strong> or upload a photo above to share with your team!
+    No posts yet. Upload a photo or create a poll above to start!
   </div>
 {% endfor %}
 {% endblock %}
