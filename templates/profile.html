@@ -2,10 +2,17 @@
 {% block content %}
 <!-- Account & Virtual Record Notice -->
 <div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-start">
-    <div>
-      <h5 class="fw-bold mb-1">{{ current_user.name }}</h5>
-      <div class="small text-muted">{{ current_user.email }}</div>
+  <div class="d-flex justify-content-between align-items-center gap-2">
+    <div class="d-flex align-items-center gap-3">
+      {% if current_user.avatar_path %}
+        <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-lg border">
+      {% else %}
+        <span class="avatar-circle avatar-lg">{{ current_user.name[:1]|upper }}</span>
+      {% endif %}
+      <div>
+        <h5 class="fw-bold mb-0">{{ current_user.name }}</h5>
+        <div class="small text-muted">{{ current_user.email }}</div>
+      </div>
     </div>
     {% if active_membership %}
       <span class="badge bg-primary rounded-pill">{{ active_membership.role|upper }}</span>
@@ -75,7 +82,12 @@
   <h6 class="fw-bold mb-2">Members in {{ active_team.name }}</h6>
   {% for tm in team_memberships %}
     <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-      <div>
+      <div class="d-flex align-items-center gap-2">
+        {% if tm.user.avatar_path %}
+          <img src="{{ url_for('static', filename=tm.user.avatar_path) }}" alt="{{ tm.user.name }}" class="avatar-circle avatar-sm">
+        {% else %}
+          <span class="avatar-circle avatar-sm">{{ tm.user.name[:1]|upper }}</span>
+        {% endif %}
         <span class="fw-semibold small">{{ tm.user.name }}</span>
         <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary-subtle text-dark' }} ms-1 rounded-pill">{{ tm.role }}</span>
       </div>
@@ -89,10 +101,14 @@
 </div>
 {% endif %}
 
-<!-- Edit Profile -->
+<!-- Edit Profile & Upload Profile Photo -->
 <div class="card p-3 mb-3">
-  <h6 class="fw-bold mb-2">Account Settings</h6>
-  <form method="POST">
+  <h6 class="fw-bold mb-2">Account Settings & Profile Photo</h6>
+  <form method="POST" enctype="multipart/form-data">
+    <div class="mb-2">
+      <label class="form-label small">Profile Photo (PNG, JPG, WEBP)</label>
+      <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm">
+    </div>
     <div class="mb-2">
       <label class="form-label small">Display Name</label>
       <input type="text" name="name" value="{{ current_user.name }}" class="form-control form-control-sm" required>
