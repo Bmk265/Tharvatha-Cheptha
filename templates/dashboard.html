@@ -54,7 +54,7 @@
 <!-- Tappable Pending Bills Card (Visible to All) -->
 <div class="card p-3 mb-3 border-warning border-opacity-50" role="button" tabindex="0" data-bs-toggle="modal" data-bs-target="#pendingByPersonModal" style="cursor: pointer;">
   <div class="d-flex justify-content-between align-items-center gap-2">
-    <div>
+    <div class="flex-grow-1 min-w-0">
       <div class="text-uppercase small fw-semibold text-muted" style="font-size: 0.7rem; letter-spacing: 0.06em;">
         <i class="bi bi-hourglass-split text-warning me-1"></i>Pending Bills ({{ current_month_label }})
       </div>
@@ -63,7 +63,7 @@
         {{ pending_claims|length }} pending bill(s) across {{ pending_by_user|length }} member(s) • <span class="text-primary fw-semibold">Tap to view breakdown</span>
       </div>
     </div>
-    <div class="d-flex align-items-center gap-2">
+    <div class="d-flex align-items-center gap-2 flex-shrink-0">
       <div class="text-end bg-light border rounded-3 px-2 py-1 d-none d-sm-block">
         <div class="text-muted" style="font-size: 0.62rem;">NET AFTER APPROVAL</div>
         <div class="fw-bold small num-tabular {{ 'text-success' if projected_balance >= 0 else 'text-danger' }}">
@@ -304,14 +304,14 @@
   {% for b in month_bills %}
     {% set is_dep = (b.category == "Monthly Deposit") %}
     <div class="d-flex justify-content-between align-items-center py-2 border-bottom gap-2">
-      <div class="min-w-0">
+      <div class="flex-grow-1 min-w-0">
         <div class="fw-semibold small text-truncate">
           {{ b.user.name }} • {{ b.category }}
           <span class="badge {{ 'bg-success' if b.status == 'approved' else ('bg-warning text-dark' if b.status == 'pending' else 'bg-secondary') }} rounded-pill ms-1" style="font-size: 0.64rem;">{{ b.status|upper }}</span>
         </div>
         <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ b.remarks }} • {{ b.created_at.strftime('%d %b %Y') }}</div>
       </div>
-      <div class="fw-bold small num-tabular flex-shrink-0 {{ 'text-success' if is_dep else 'text-danger' }}">
+      <div class="fw-bold small num-tabular text-end flex-shrink-0 {{ 'text-success' if is_dep else 'text-danger' }}">
         {{ '+' if is_dep else '-' }}₹{{ "%.2f"|format(b.amount) }}
       </div>
     </div>
@@ -377,7 +377,7 @@
       const sign = item.is_deposit ? '+' : '-';
       return `
         <div class="border rounded-4 p-3 mb-2 bg-light d-flex justify-content-between align-items-start gap-2">
-          <div class="min-w-0">
+          <div class="flex-grow-1 min-w-0">
             <div class="d-flex align-items-center gap-1 flex-wrap mb-1">
               <span class="badge ${badgeClass} rounded-pill" style="font-size: 0.62rem;">${badgeText}</span>
               <span class="fw-bold small text-dark">${escapeHtml(item.category)}</span>
@@ -385,7 +385,7 @@
             <div class="small text-secondary">${escapeHtml(item.remarks)}</div>
             <div class="text-muted mt-1" style="font-size: 0.68rem;">${escapeHtml(item.date)}</div>
           </div>
-          <div class="fw-bold small num-tabular flex-shrink-0 ${amtClass}">
+          <div class="fw-bold small num-tabular text-end flex-shrink-0 ${amtClass}">
             ${sign}₹${Number(item.amount).toFixed(2)}
           </div>
         </div>
