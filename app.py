@@ -83,6 +83,7 @@ class User(UserMixin, db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
+    avatar_path = db.Column(db.String(255), nullable=True)
     role = db.Column(db.String(20), default='member')  # legacy fallback
     personal_balance = db.Column(db.Float, default=0.0)  # legacy fallback
     active_team_id = db.Column(db.Integer, nullable=True)
@@ -171,7 +172,7 @@ def ensure_schema_and_default_team():
     inspector = inspect(db.engine)
 
     table_columns = {
-        'user': [('active_team_id', 'INTEGER')],
+        'user': [('active_team_id', 'INTEGER'), ('avatar_path', 'VARCHAR(255)')],
         'pool_ledger': [('team_id', 'INTEGER')],
         'bill_claim': [('team_id', 'INTEGER')],
         'personal_transaction': [('team_id', 'INTEGER')],
@@ -543,7 +544,6 @@ def process_claim(claim_id, action):
 
     if action == 'approve':
         claim.status = 'approved'
-        # Monthly Deposit (Per Person) -> Credit; all other categories -> Debit
         is_deposit = (claim.category == "Monthly Deposit (Per Person)")
         ledger_type = 'credit' if is_deposit else 'debit'
 
@@ -751,6 +751,16 @@ def profile():
         new_pass = request.form.get('new_password', '').strip()
         if new_pass:
             current_user.password_hash = generate_password_hash(new_pass)
+
+        avatar_file = request.files.get('avatar')
+        if avatar_file and avatar_file.filename:
+            saved_avatar = _save_uploaded_image(avatar_file)
+            if saved_avatar:
+                current_user.avatar_path = saved_avatar
+            else:
+                flash("Unsupported profile photo format. Use PNG, JPG, JPEG, GIF, or WEBP.", "warning")
+                return redirect(url_for('profile'))
+
         db.session.commit()
         flash("Profile updated!", "success")
         return redirect(url_for('profile'))
