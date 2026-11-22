@@ -1,27 +1,25 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- Profile Header Card -->
-<div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-start gap-2">
-    <div class="d-flex align-items-center gap-3 min-w-0 flex-grow-1">
-      {% if current_user.avatar_path %}
-        <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-lg flex-shrink-0 border">
-      {% else %}
-        <span class="avatar-circle avatar-lg flex-shrink-0">{{ current_user.name[:1]|upper }}</span>
-      {% endif %}
-      <div class="min-w-0">
-        <h5 class="fw-bold mb-0 text-truncate">{{ current_user.name }}</h5>
-        <div class="small text-muted text-truncate">{{ current_user.email }}</div>
-      </div>
-    </div>
+<div class="card p-3 mb-3" style="overflow: hidden;">
+  <div class="d-flex align-items-center gap-3" style="min-width: 0;">
+    {% if current_user.avatar_path %}
+      <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-lg flex-shrink-0 border">
+    {% else %}
+      <span class="avatar-circle avatar-lg flex-shrink-0">{{ current_user.name[:1]|upper }}</span>
+    {% endif %}
 
-    <div class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
-      {% if is_super_admin %}
-        <span class="badge bg-warning text-dark rounded-pill px-2 py-1" style="font-size: 0.65rem;">SUPER ADMIN</span>
-      {% endif %}
-      {% if active_membership %}
-        <span class="badge bg-primary rounded-pill px-2 py-1" style="font-size: 0.65rem;">{{ active_membership.role|upper }}</span>
-      {% endif %}
+    <div class="flex-grow-1" style="min-width: 0;">
+      <h5 class="fw-bold mb-0 text-truncate">{{ current_user.name }}</h5>
+      <div class="small text-muted text-truncate mb-2">{{ current_user.email }}</div>
+      <div class="d-flex gap-1 flex-wrap">
+        {% if is_super_admin %}
+          <span class="badge bg-warning text-dark rounded-pill px-2 py-1" style="font-size: 0.65rem;">SUPER ADMIN</span>
+        {% endif %}
+        {% if active_membership %}
+          <span class="badge bg-primary rounded-pill px-2 py-1" style="font-size: 0.65rem;">{{ active_membership.role|upper }}</span>
+        {% endif %}
+      </div>
     </div>
   </div>
 
@@ -32,9 +30,9 @@
 </div>
 
 <!-- Teams & Invite Links Card -->
-<div class="card p-3 mb-3">
+<div class="card p-3 mb-3" style="overflow: hidden;">
   <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
-    <div class="min-w-0">
+    <div style="min-width: 0;">
       <h6 class="fw-bold mb-1"><i class="bi bi-people text-primary me-1"></i>Teams &amp; Invite Links</h6>
       <div class="small text-muted">New members join only by opening a team's invite link.</div>
     </div>
@@ -52,7 +50,7 @@
       {% set invite_url = url_for('join_via_invite_link', code=m.team.invite_code, _external=True) %}
       <div class="border rounded-4 p-3 mb-2 bg-light">
         <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
-          <div class="d-flex align-items-center gap-2 min-w-0">
+          <div class="d-flex align-items-center gap-2 flex-wrap" style="min-width: 0;">
             <span class="fw-bold small text-truncate">{{ m.team.name }}</span>
             <span class="badge {{ 'bg-success' if m.role == 'cashier' else 'bg-secondary' }} rounded-pill">{{ m.role }}</span>
             {% if active_team and active_team.id == m.team.id %}
@@ -97,7 +95,7 @@
 
 <!-- Active Team Members & Cashier Role Management -->
 {% if active_team and team_memberships %}
-<div class="card p-3 mb-3">
+<div class="card p-3 mb-3" style="overflow: hidden;">
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h6 class="fw-bold mb-0"><i class="bi bi-person-check text-primary me-1"></i>{{ active_team.name }} Members</h6>
     <span class="badge bg-light text-dark border rounded-pill">{{ team_memberships|length }}</span>
@@ -106,13 +104,13 @@
   {% for tm in team_memberships %}
     {% if tm.user %}
       <div class="d-flex justify-content-between align-items-center py-2 border-bottom gap-2 flex-wrap">
-        <div class="d-flex align-items-center gap-2 min-w-0">
+        <div class="d-flex align-items-center gap-2" style="min-width: 0;">
           {% if tm.user.avatar_path %}
             <img src="{{ url_for('static', filename=tm.user.avatar_path) }}" alt="{{ tm.user.name }}" class="avatar-circle avatar-sm flex-shrink-0">
           {% else %}
             <span class="avatar-circle avatar-sm flex-shrink-0">{{ tm.user.name[:1]|upper }}</span>
           {% endif %}
-          <div class="min-w-0">
+          <div style="min-width: 0;">
             <div class="fw-semibold small text-truncate">
               {{ tm.user.name }}
               <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary' }} rounded-pill ms-1" style="font-size: 0.62rem;">{{ tm.role|upper }}</span>
@@ -122,7 +120,7 @@
         </div>
 
         {% if is_cashier and tm.user_id != current_user.id %}
-          <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="d-flex gap-1 m-0">
+          <form method="POST" action="{{ url_for('manage_cashier_role', user_id=tm.user_id) }}" class="d-flex gap-1 m-0 flex-wrap">
             {% if tm.role != 'cashier' %}
               <button type="submit" name="mode" value="co_cashier" class="btn btn-sm btn-outline-success rounded-pill px-2 py-1" style="font-size: 0.72rem;">Make Co-Cashier</button>
               <button type="submit" name="mode" value="transfer" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1" style="font-size: 0.72rem;">Transfer Role</button>
@@ -138,7 +136,7 @@
 {% endif %}
 
 <!-- Edit Profile & Account Settings -->
-<div class="card p-3 mb-3">
+<div class="card p-3 mb-3" style="overflow: hidden;">
   <h6 class="fw-bold mb-2"><i class="bi bi-sliders text-primary me-1"></i>Edit Profile &amp; Security</h6>
   <form method="POST" action="{{ url_for('profile') }}" enctype="multipart/form-data" class="row g-2">
     <div class="col-12 col-sm-6">
@@ -164,7 +162,7 @@
 
 <!-- Super Admin Overview -->
 {% if is_super_admin %}
-<div class="card p-3 mb-3 border-warning border-opacity-75">
+<div class="card p-3 mb-3 border-warning border-opacity-75" style="overflow: hidden;">
   <h6 class="fw-bold mb-2"><i class="bi bi-shield-lock-fill text-warning me-1"></i>Super Admin Overview</h6>
   <div class="row g-2 text-center mb-2">
     <div class="col-6">
