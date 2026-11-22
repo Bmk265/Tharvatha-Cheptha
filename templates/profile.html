@@ -49,7 +49,7 @@
     </div>
   </div>
 
-  <!-- Your Joined Teams (Switch or Leave) -->
+  <!-- Your Joined Teams (Switch or Request Leave) -->
   <h6 class="fw-bold small text-uppercase text-muted mb-2">Your Teams ({{ user_memberships|length }})</h6>
   {% for um in user_memberships %}
     <div class="d-flex justify-content-between align-items-center py-2 border-bottom flex-wrap gap-2">
@@ -65,10 +65,15 @@
             <button class="btn btn-sm btn-outline-primary rounded-pill px-3">Switch</button>
           </form>
         {% endif %}
-        <form method="POST" action="{{ url_for('leave_team') }}" class="m-0" onsubmit="return confirm('Leave {{ um.team.name }}?');">
-          <input type="hidden" name="team_id" value="{{ um.team_id }}">
-          <button class="btn btn-sm btn-outline-danger rounded-pill px-3">Leave Team</button>
-        </form>
+
+        {% if um.team_id in pending_my_leave_team_ids %}
+          <span class="badge bg-warning text-dark rounded-pill align-self-center px-3 py-2">Leave Pending Cashier Approval</span>
+        {% else %}
+          <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3"
+                  onclick="openLeaveConfirmModal({{ um.team_id }}, {{ um.team.name|tojson }})">
+            Leave Team
+          </button>
+        {% endif %}
       </div>
     </div>
   {% else %}
@@ -142,11 +147,71 @@
 <!-- Leave Active Team & Logout -->
 <div class="d-grid gap-2">
   {% if active_team %}
-    <form method="POST" action="{{ url_for('leave_team') }}" class="m-0" onsubmit="return confirm('Leave active team {{ active_team.name }}?');">
-      <input type="hidden" name="team_id" value="{{ active_team.id }}">
-      <button class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2">Leave {{ active_team.name }}</button>
-    </form>
+    {% if active_team.id in pending_my_leave_team_ids %}
+      <button class="btn btn-outline-warning btn-sm w-100 rounded-pill py-2" disabled>Leave Request Pending Cashier Approval</button>
+    {% else %}
+      <button type="button" class="btn btn-outline-danger btn-sm w-100 rounded-pill py-2"
+              onclick="openLeaveConfirmModal({{ active_team.id }}, {{ active_team.name|tojson }})">
+        Leave {{ active_team.name }}
+      </button>
+    {% endif %}
   {% endif %}
   <a href="{{ url_for('logout') }}" class="btn btn-danger btn-sm w-100 rounded-pill py-2">Logout</a>
 </div>
+
+<!-- Double-Confirmation Leave Team Modal -->
+<div class="modal fade" id="leaveTeamModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 rounded-4">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Confirm Leaving Team</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('leave_team') }}" onsubmit="return confirm('Final confirmation: Send leave request for ' + document.getElementById('leaveTeamTitle').textContent + '?');">
+        <div class="modal-body">
+          <input type="hidden" name="team_id" id="leaveTeamIdInput">
+          <p class="small mb-2">
+            You are requesting to leave <strong id="leaveTeamTitle"></strong>. Your exit will be sent to the team's <strong>Cashier</strong> for final approval.
+          </p>
+          <div class="mb-3">
+            <label class="form-label small">Reason (optional)</label>
+            <input type="text" name="reason" class="form-control form-control-sm" placeholder="e.g., Moving out / shifting room">
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="confirm_step_1" value="yes" id="leaveCheck1" required>
+            <label class="form-check-label small" for="leaveCheck1">
+              1. I confirm I want to leave this team.
+            </label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="confirm_step_2" value="yes" id="leaveCheck2" required>
+            <label class="form-check-label small" for="leaveCheck2">
+              2. I understand a Cashier must approve my exit before I am removed.
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-sm btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-danger rounded-pill px-3">Confirm & Request Exit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openLeaveConfirmModal(teamId, teamName) {
+    if (!confirm('Step 1: Are you sure you want to start leaving "' + teamName + '"?')) {
+      return;
+    }
+    document.getElementById('leaveTeamIdInput').value = teamId;
+    document.getElementById('leaveTeamTitle').textContent = teamName;
+    document.getElementById('leaveCheck1').checked = false;
+    document.getElementById('leaveCheck2').checked = false;
+    const modal = new bootstrap.Modal(document.getElementById('leaveTeamModal'));
+    modal.show();
+  }
+</script>
 {% endblock %}
