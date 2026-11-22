@@ -37,6 +37,30 @@
       border-radius: 16px;
       box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
     }
+    .avatar-circle {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      object-fit: cover;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .avatar-sm {
+      width: 26px;
+      height: 26px;
+      font-size: 0.72rem;
+    }
+    .avatar-lg {
+      width: 60px;
+      height: 60px;
+      font-size: 1.35rem;
+    }
     .bottom-nav {
       position: fixed;
       bottom: 0;
@@ -92,8 +116,15 @@
 <body>
   <header class="top-bar d-flex justify-content-between align-items-center">
     <div class="d-flex align-items-center gap-2">
+      {% if current_user.is_authenticated %}
+        {% if current_user.avatar_path %}
+          <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-sm border border-light">
+        {% else %}
+          <span class="avatar-circle avatar-sm">{{ current_user.name[:1]|upper }}</span>
+        {% endif %}
+      {% endif %}
       <span class="fw-bold fs-6">TeamPool</span>
-      {% if current_user.is_authenticated and active_team %}
+      {% if current_user.is_authenticated and active_team and active_membership %}
         <span class="badge bg-primary bg-opacity-75 rounded-pill">{{ active_membership.role|upper }}</span>
       {% endif %}
     </div>
@@ -173,17 +204,18 @@
 
           <div class="tab-content">
             <div class="tab-pane fade show active" id="tab-feed-post">
-              <form method="POST" action="{{ url_for('feed') }}">
-                <div class="mb-2">
-                  <select name="tag" class="form-select form-select-sm">
+              <form method="POST" action="{{ url_for('feed') }}" enctype="multipart/form-data">
+                <div class="d-flex gap-2 mb-2">
+                  <select name="tag" class="form-select form-select-sm rounded-pill">
                     <option value="Update">Room / City Update</option>
                     <option value="Grocery & Food">Grocery & Food</option>
                     <option value="Rent & Bills">Rent & Bills</option>
-                    <option value="Reminder">Team Reminder</option>
+                    <option value="Room Life">Room Life</option>
                   </select>
+                  <input type="file" name="photo" accept="image/*" class="form-control form-control-sm">
                 </div>
                 <div class="mb-3">
-                  <textarea name="content" rows="3" class="form-control form-control-sm" placeholder="Share an update, photo/bill note, or plan with your team..." required></textarea>
+                  <textarea name="content" rows="2" class="form-control form-control-sm" placeholder="Share an update, photo, or bill note with your team..."></textarea>
                 </div>
                 <button class="btn btn-primary btn-sm w-100 rounded-pill">Publish to Team Feed</button>
               </form>
@@ -206,7 +238,7 @@
                   </div>
                 </div>
                 <div class="mb-3">
-                  <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Bill remarks (e.g., groceries, dinner, electricity)" required>
+                  <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Bill remarks (e.g., groceries, dinner, deposit)" required>
                 </div>
                 <button class="btn btn-success btn-sm w-100 rounded-pill">Submit Bill for Approval</button>
               </form>
