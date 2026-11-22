@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-2"><i class="bi bi-megaphone me-1 text-primary"></i>Post to {{ active_team.name }} Feed</h6>
+  <form method="POST">
+    <div class="d-flex gap-2 mb-2">
+      <select name="tag" class="form-select form-select-sm w-auto rounded-pill">
+        <option value="Update">Update</option>
+        <option value="Grocery & Food">Grocery & Food</option>
+        <option value="Rent & Bills">Rent & Bills</option>
+        <option value="Reminder">Reminder</option>
+      </select>
+    </div>
+    <textarea name="content" rows="2" class="form-control form-control-sm mb-2" placeholder="Share a bill note, room update, or message with your team..." required></textarea>
+    <button class="btn btn-primary btn-sm rounded-pill px-4">Post</button>
+  </form>
+</div>
+
+{% for p in posts %}
+  <div id="post-{{ p.id }}" class="card p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div>
+        <span class="fw-bold small">{{ p.author.name }}</span>
+        <span class="text-muted" style="font-size: 0.72rem;">• {{ p.created_at.strftime('%d %b • %I:%M %p') }}</span>
+      </div>
+      <span class="badge bg-primary-subtle text-primary rounded-pill">{{ p.tag }}</span>
+    </div>
+
+    <p class="mb-3" style="white-space: pre-line;">{{ p.content }}</p>
+
+    <div class="d-flex justify-content-between border-top border-bottom py-2 small">
+      <form method="POST" action="{{ url_for('toggle_like', post_id=p.id) }}" class="m-0">
+        <button class="btn btn-sm {{ 'btn-primary' if p.id in liked_post_ids else 'btn-light' }} rounded-pill px-3">
+          <i class="bi bi-heart{{ '-fill' if p.id in liked_post_ids else '' }}"></i> {{ p.likes|length }}
+        </button>
+      </form>
+
+      <button type="button" class="btn btn-sm btn-light rounded-pill px-3" data-bs-toggle="collapse" data-bs-target="#comments-{{ p.id }}">
+        <i class="bi bi-chat-dots"></i> {{ p.comments|length }}
+      </button>
+
+      <button type="button" class="btn btn-sm btn-light rounded-pill px-3" onclick="sharePost({{ p.id }}, {{ p.content|tojson }})">
+        <i class="bi bi-share"></i> <span id="share-count-{{ p.id }}">{{ p.shares_count or 0 }}</span>
+      </button>
+    </div>
+
+    <div class="collapse {{ 'show' if p.comments else '' }} mt-2" id="comments-{{ p.id }}">
+      {% for c in p.comments %}
+        <div class="bg-light rounded-3 p-2 mb-1 small">
+          <span class="fw-bold">{{ c.author.name }}:</span> {{ c.comment }}
+        </div>
+      {% endfor %}
+      <form method="POST" action="{{ url_for('add_comment', post_id=p.id) }}" class="d-flex gap-2 mt-2">
+        <input type="text" name="comment" class="form-control form-control-sm rounded-pill" placeholder="Write a comment..." required>
+        <button class="btn btn-sm btn-dark rounded-pill px-3">Reply</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <div class="card p-4 text-center text-muted small">
+    No feed posts yet. Tap <strong>+</strong> or post above to start the team feed!
+  </div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function sharePost(postId, text) {
+    const shareUrl = window.location.origin + "{{ url_for('feed') }}#post-" + postId;
+    if (navigator.share) {
+      try { await navigator.share({ title: 'TeamPool Post', text: text, url: shareUrl }); } catch (e) {}
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(shareUrl);
+      alert('Post link copied to clipboard!');
+    }
+    const res = await fetch(`/feed/${postId}/share`, { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      const el = document.getElementById(`share-count-${postId}`);
+      if (el) el.textContent = data.shares;
+    }
+  }
+</script>
+{% endblock %}
