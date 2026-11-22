@@ -17,7 +17,7 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # 8 MB max upload
+app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
@@ -80,6 +80,12 @@ def _format_category_and_remarks(category, custom_specify, remarks):
         combined = f"[{spec}] {rem}".strip() if rem else spec
         return category, combined
     return category, rem
+
+
+@app.errorhandler(413)
+def file_too_large(e):
+    flash("Image file is too large. Please choose a photo under 20 MB.", "warning")
+    return redirect(request.referrer or url_for('feed'))
 
 
 # ---------------- MODELS ----------------
@@ -958,6 +964,34 @@ def track_share(post_id):
     post.shares_count = (post.shares_count or 0) + 1
     db.session.commit()
     return jsonify({'shares': post.shares_count})
+
+
+@app.route('/feed/<int:post_id>/delete', methods=['POST'])
+@login_required
+def delete_feed_post(post_id):
+    team, membership = get_active_team_context()
+    post = FeedPost.query.filter_by(id=post_id, team_id=team.id).first_or_404()
+
+    is_owner = (post.user_id == current_user.id)
+    is_team_cashier = (membership and membership.role == 'cashier')
+    is_super = bool(getattr(current_user, 'is_super_admin', False))
+
+    if not (is_owner or is_team_cashier or is_super):
+        flash("You do not have permission to delete this post.", "danger")
+        return redirect(url_for('feed'))
+
+    if post.image_path:
+        full_img_path = os.path.join(BASE_DIR, 'static', post.image_path)
+        if os.path.exists(full_img_path):
+            try:
+                os.remove(full_img_path)
+            except OSError:
+                pass
+
+    db.session.delete(post)
+    db.session.commit()
+    flash("Post deleted from feed.", "info")
+    return redirect(url_for('feed'))
 
 
 @app.route('/chat', methods=['GET', 'POST'])
