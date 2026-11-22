@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- Top Summary Cards -->
+<div class="card p-3 bg-dark text-white mb-3">
+  <small class="text-info">Total Available Maintenance Balance (Virtual)</small>
+  <h2 class="fw-bold mb-2">₹{{ "%.2f"|format(available_balance) }}</h2>
+  <div class="d-flex justify-content-between border-top border-secondary pt-2 small">
+    <span>Month Opening: <strong>₹{{ "%.2f"|format(month_opening) }}</strong></span>
+    <span>Month Expenses: <strong class="text-warning">₹{{ "%.2f"|format(month_expenses) }}</strong></span>
+  </div>
+</div>
+
+<!-- Category-wise Expenses -->
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold mb-2">Category-Wise Expenses (This Month)</h6>
+  <ul class="list-group list-group-flush">
+    {% for cat, amt in category_totals.items() %}
+    <li class="list-group-item d-flex justify-content-between px-0">
+      <span>{{ cat }}</span>
+      <strong>₹{{ "%.2f"|format(amt) }}</strong>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+
+<!-- Cashier Controls vs Member Bill Submission -->
+{% if current_user.role == 'cashier' %}
+<div class="card p-3 mb-3 border-start border-4 border-primary">
+  <h6 class="fw-bold text-primary">Cashier: Credit / Debit / Opening Balance</h6>
+  <form method="POST" action="{{ url_for('cashier_transaction') }}">
+    <div class="row g-2">
+      <div class="col-6">
+        <select name="tx_type" class="form-select" required>
+          <option value="opening">Set Opening Balance</option>
+          <option value="credit">Credit (+ Add Money)</option>
+          <option value="debit">Debit (- Expense)</option>
+        </select>
+      </div>
+      <div class="col-6">
+        <input type="number" step="0.01" name="amount" class="form-control" placeholder="Amount (₹)" required>
+      </div>
+      <div class="col-12">
+        <select name="category" class="form-select" required>
+          {% for cat in categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12">
+        <select name="user_id" class="form-select">
+          <option value="">-- Whole Pool Only (Optional Person) --</option>
+          {% for m in members %}
+            <option value="{{ m.id }}">{{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12">
+        <input type="text" name="remarks" class="form-control" placeholder="Remarks (e.g. April deposit / Room rent)" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary w-100">Update Pool Account</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% else %}
+<div class="card p-3 mb-3 border-start border-4 border-success">
+  <h6 class="fw-bold text-success">Share Bill for Cashier Approval</h6>
+  <form method="POST" action="{{ url_for('submit_claim') }}">
+    <div class="row g-2">
+      <div class="col-6">
+        <input type="number" step="0.01" name="amount" class="form-control" placeholder="Amount (₹)" required>
+      </div>
+      <div class="col-6">
+        <select name="category" class="form-select" required>
+          {% for cat in categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12">
+        <input type="text" name="remarks" class="form-control" placeholder="Bill details / remarks" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-success w-100">Send Bill to Cashier</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<!-- Pending Bills Queue -->
+<div class="card p-3 mb-3">
+  <h6 class="fw-bold">Pending Bill Approvals ({{ pending_claims|length }})</h6>
+  {% if pending_claims %}
+    {% for c in pending_claims %}
+    <div class="border rounded p-2 mb-2 bg-light">
+      <div class="d-flex justify-content-between">
+        <strong>{{ c.user.name }} — ₹{{ "%.2f"|format(c.amount) }}</strong>
+        <span class="badge bg-secondary">{{ c.category }}</span>
+      </div>
+      <p class="mb-1 small text-muted">{{ c.remarks }} ({{ c.created_at.strftime('%d %b, %I:%M %p') }})</p>
+      {% if current_user.role == 'cashier' %}
+      <div class="d-flex gap-2 mt-1">
+        <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='approve') }}">
+          <button class="btn btn-sm btn-success">Approve</button>
+        </form>
+        <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='reject') }}">
+          <button class="btn btn-sm btn-outline-danger">Reject</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="text-muted small mb-0">No pending bills right now.</p>
+  {% endif %}
+</div>
+{% endblock %}
