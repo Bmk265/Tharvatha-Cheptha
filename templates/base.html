@@ -56,7 +56,7 @@
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       color: #fff;
-      padding: 10px 14px;
+      padding: 10px 12px;
       position: sticky;
       top: 0;
       z-index: 1020;
@@ -70,8 +70,8 @@
       color: #fff;
     }
     .header-logo-img {
-      width: 34px;
-      height: 34px;
+      width: 32px;
+      height: 32px;
       border-radius: 10px;
       object-fit: cover;
       border: 1px solid rgba(255, 255, 255, 0.18);
@@ -193,11 +193,13 @@
       border: 1px solid rgba(252, 211, 77, 0.35);
     }
     .team-switcher-select {
-      max-width: 105px;
+      max-width: 86px;
       min-height: 32px !important;
-      font-size: 0.76rem !important;
+      font-size: 0.74rem !important;
       padding-top: 2px;
       padding-bottom: 2px;
+      padding-left: 10px;
+      padding-right: 22px;
     }
     @media (min-width: 576px) {
       .team-switcher-select { max-width: 200px; }
@@ -206,20 +208,20 @@
 </head>
 <body>
   <header class="top-bar d-flex justify-content-between align-items-center gap-2">
-    <div class="d-flex align-items-center gap-2 min-w-0">
+    <div class="d-flex align-items-center gap-2" style="min-width: 0;">
       <a href="{{ url_for('dashboard') if current_user.is_authenticated else url_for('login') }}" class="brand-logo-wrap">
         <img src="{{ url_for('static', filename='logo.png') }}" alt="TEAM POOL Logo" class="header-logo-img">
         <div class="lh-1 text-truncate">
-          <div class="brand-font fw-bold text-truncate" style="font-size: 0.92rem;">TEAM POOL</div>
-          <div class="text-truncate" style="font-size: 0.58rem; color: #94a3b8; letter-spacing: 0.05em;">TREASURY LEDGER</div>
+          <div class="brand-font fw-bold text-truncate" style="font-size: 0.88rem;">TEAM POOL</div>
+          <div class="text-truncate d-none d-sm-block" style="font-size: 0.58rem; color: #94a3b8; letter-spacing: 0.05em;">TREASURY LEDGER</div>
         </div>
       </a>
 
       {% if current_user.is_authenticated %}
         {% if is_super_admin %}
-          <span class="super-chip d-none d-sm-inline-block">SUPER ADMIN</span>
+          <span class="super-chip d-none d-md-inline-block">SUPER ADMIN</span>
         {% elif active_team and active_membership %}
-          <span class="role-chip d-none d-sm-inline-block">{{ active_membership.role|upper }}</span>
+          <span class="role-chip d-none d-md-inline-block">{{ active_membership.role|upper }}</span>
         {% endif %}
       {% endif %}
     </div>
