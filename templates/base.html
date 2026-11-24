@@ -1,526 +1,361 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>TEAM POOL — Enterprise Treasury & Expense Operations</title>
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.png') }}">
-  <meta name="theme-color" content="#070b14">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="{{ url_for('manifest') }}">
+  <title>{{ active_team.name if active_team else 'TEAM POOL' }}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <style>
-    :root {
-      --bg-canvas: #f4f6fa;
-      --surface: #ffffff;
-      --surface-muted: #f8fafc;
-      --navy-950: #070b14;
-      --navy-900: #0f172a;
-      --slate-600: #475569;
-      --slate-500: #64748b;
-      --border-subtle: rgba(15, 23, 42, 0.08);
-      --brand-primary: #2563eb;
-      --brand-indigo: #4f46e5;
-      --radius-card: 18px;
-      --shadow-card: 0 10px 28px -10px rgba(15, 23, 42, 0.08);
-    }
-    * { box-sizing: border-box; }
-    html, body {
-      max-width: 100%;
-      overflow-x: hidden;
-      background-color: var(--bg-canvas);
-      color: var(--navy-900);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-    body {
-      padding-bottom: calc(90px + env(safe-area-inset-bottom));
-    }
-    h1, h2, h3, h4, h5, h6, .brand-font {
-      font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-      letter-spacing: -0.02em;
-    }
-    .num-tabular {
-      font-variant-numeric: tabular-nums;
-    }
-    .min-w-0 {
-      min-width: 0 !important;
-    }
-
-    /* Global Top Header */
-    .top-bar {
-      background: rgba(7, 11, 20, 0.94);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      color: #fff;
-      padding: 10px 14px;
-      position: sticky;
-      top: 0;
-      z-index: 1020;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    .brand-logo-wrap {
-      display: inline-flex;
-      align-items: center;
-      gap: 9px;
-      text-decoration: none;
-      color: #fff;
-      min-width: 0;
-    }
-    .header-logo-img {
-      width: 32px;
-      height: 32px;
-      border-radius: 10px;
-      object-fit: cover;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      background: #0f172a;
-      flex-shrink: 0;
-    }
-    .team-switcher-select {
-      max-width: 92px;
-      min-height: 32px !important;
-      font-size: 0.74rem !important;
-      font-weight: 600;
-      padding: 2px 24px 2px 10px;
-    }
-    @media (min-width: 576px) {
-      .team-switcher-select { max-width: 210px; }
-    }
-
-    /* Surfaces & Cards */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-card);
-      box-shadow: var(--shadow-card);
-      transition: transform 0.14s ease, box-shadow 0.14s ease;
-    }
-    .hero-ledger-card {
-      background: radial-gradient(125% 145% at 0% 0%, #1e293b 0%, #070b14 64%, #1e3a8a 100%);
-      color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 22px;
-      box-shadow: 0 20px 40px -14px rgba(7, 11, 20, 0.45);
-    }
-    .form-control, .form-select {
-      border-radius: 12px;
-      border: 1px solid #cbd5e1;
-      font-size: 0.88rem;
-      min-height: 40px;
-    }
-    .form-control:focus, .form-select:focus {
-      border-color: var(--brand-primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-    }
-    .btn {
-      font-weight: 600;
-      letter-spacing: -0.01em;
-    }
-    .avatar-circle {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      object-fit: cover;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 0.85rem;
-      background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
-      color: #fff;
-      flex-shrink: 0;
-    }
-    .avatar-sm { width: 28px; height: 28px; font-size: 0.74rem; }
-    .avatar-lg { width: 60px; height: 60px; font-size: 1.35rem; }
-
-    .role-chip {
-      font-size: 0.64rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: rgba(59, 130, 246, 0.22);
-      color: #93c5fd;
-      border: 1px solid rgba(147, 197, 253, 0.3);
-    }
-    .super-chip {
-      font-size: 0.64rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: rgba(245, 158, 11, 0.22);
-      color: #fcd34d;
-      border: 1px solid rgba(252, 211, 77, 0.35);
-    }
-
-    /* Bottom Navigation Dock */
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: calc(68px + env(safe-area-inset-bottom));
-      padding-bottom: env(safe-area-inset-bottom);
-      background: rgba(255, 255, 255, 0.96);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border-top: 1px solid var(--border-subtle);
-      display: flex;
-      align-items: center;
-      justify-content: space-around;
-      z-index: 1030;
-      box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.06);
-    }
-    .nav-item-link {
-      flex: 1;
-      text-decoration: none;
-      color: var(--slate-500);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.68rem;
-      font-weight: 600;
-      gap: 3px;
-      min-height: 48px;
-      transition: color 0.14s ease;
-    }
-    .nav-item-link i { font-size: 1.15rem; }
-    .nav-item-link.active { color: var(--brand-primary); }
-    .fab-btn {
-      width: 52px;
-      height: 52px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
-      color: #fff;
-      border: 4px solid var(--bg-canvas);
-      box-shadow: 0 10px 22px rgba(37, 99, 235, 0.36);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.4rem;
-      margin-top: -24px;
-      transition: transform 0.14s ease;
-    }
-    .fab-btn:active { transform: scale(0.95); }
-  </style>
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
-<body>
-  <header class="top-bar d-flex justify-content-between align-items-center gap-2">
-    <div class="d-flex align-items-center gap-2 min-w-0">
-      <a href="{{ url_for('dashboard') if current_user.is_authenticated else url_for('login') }}" class="brand-logo-wrap">
-        <img src="{{ url_for('static', filename='logo.png') }}" alt="TEAM POOL Logo" class="header-logo-img">
-        <div class="lh-1 min-w-0">
-          <div class="brand-font fw-bold text-truncate" style="font-size: 0.88rem;">TEAM POOL</div>
-          <div class="text-truncate d-none d-sm-block" style="font-size: 0.58rem; color: #94a3b8; letter-spacing: 0.06em;">TREASURY &amp; EXPENSE SUITE</div>
-        </div>
-      </a>
-
-      {% if current_user.is_authenticated %}
-        {% if is_super_admin %}
-          <span class="super-chip d-none d-md-inline-block">SUPER ADMIN</span>
-        {% elif active_team and active_membership %}
-          <span class="role-chip d-none d-md-inline-block">{{ active_membership.role|upper }}</span>
-        {% endif %}
-      {% endif %}
-    </div>
-
-    {% if current_user.is_authenticated %}
-      <div class="d-flex align-items-center gap-2 flex-shrink-0">
-        {% if user_teams %}
-          <form method="POST" action="{{ url_for('switch_team') }}" class="m-0">
-            <select name="team_id" class="form-select form-select-sm bg-dark text-white border-secondary rounded-pill team-switcher-select" onchange="this.form.submit()" aria-label="Switch Team">
-              {% for t in user_teams %}
-                <option value="{{ t.id }}" {{ 'selected' if active_team and t.id == active_team.id else '' }}>{{ t.name }}</option>
-              {% endfor %}
-            </select>
-          </form>
-        {% endif %}
-
-        <button type="button" class="btn btn-sm btn-dark border-secondary rounded-pill position-relative px-2 flex-shrink-0" data-bs-toggle="modal" data-bs-target="#notificationsModal" aria-label="Notifications">
-          <i class="bi bi-bell-fill"></i>
-          {% if unread_notifications_count > 0 %}
-            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem;">
-              {{ unread_notifications_count }}
-            </span>
-          {% endif %}
-        </button>
-
-        <a href="{{ url_for('profile') }}" class="text-decoration-none flex-shrink-0" title="Profile & Workspace">
-          {% if current_user.avatar_path %}
-            <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-sm border border-light">
-          {% else %}
-            <span class="avatar-circle avatar-sm">{{ current_user.name[:1]|upper }}</span>
-          {% endif %}
-        </a>
+<body class="bg-light">
+  <main class="container py-3 pb-5 mb-4" style="max-width: 680px;">
+    {% if current_user.is_authenticated and user_teams|length > 1 %}
+      <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+        <span class="small text-muted">Workspace:</span>
+        <form method="POST" action="{{ url_for('switch_team') }}" class="d-flex gap-2 align-items-center m-0">
+          <select name="team_id" class="form-select form-select-sm rounded-pill" onchange="this.form.submit()">
+            {% for t in user_teams %}
+              <option value="{{ t.id }}" {{ 'selected' if active_team and t.id == active_team.id else '' }}>
+                {{ t.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </form>
       </div>
     {% endif %}
-  </header>
 
-  <main class="container py-3 px-3" style="max-width: 860px;">
     {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for category, msg in messages %}
-        <div class="alert alert-{{ category }} alert-dismissible fade show py-2 px-3 small rounded-3 shadow-sm border-0" role="alert">
-          {{ msg }}
-          <button type="button" class="btn-close py-2" data-bs-dismiss="alert"></button>
-        </div>
-      {% endfor %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show rounded-3 small py-2 px-3 shadow-sm" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
     {% endwith %}
 
     {% block content %}{% endblock %}
   </main>
 
-  {% if current_user.is_authenticated %}
-  <nav class="bottom-nav">
-    <a href="{{ url_for('dashboard') }}" class="nav-item-link {{ 'active' if request.endpoint == 'dashboard' else '' }}">
-      <i class="bi bi-grid-1x2{{ '-fill' if request.endpoint == 'dashboard' else '' }}"></i>
-      <span>Overview</span>
-    </a>
-    <a href="{{ url_for('my_transactions') }}" class="nav-item-link {{ 'active' if request.endpoint == 'my_transactions' else '' }}">
-      <i class="bi bi-wallet2"></i>
-      <span>My Ledger</span>
-    </a>
-    <button type="button" class="fab-btn" data-bs-toggle="modal" data-bs-target="#quickCreateModal" aria-label="Quick Action">
-      <i class="bi bi-plus-lg"></i>
-    </button>
-    <a href="{{ url_for('feed') }}" class="nav-item-link {{ 'active' if request.endpoint == 'feed' else '' }}">
-      <i class="bi bi-collection-play{{ '-fill' if request.endpoint == 'feed' else '' }}"></i>
-      <span>Feed</span>
-    </a>
-    <a href="{{ url_for('profile') }}" class="nav-item-link {{ 'active' if request.endpoint == 'profile' else '' }}">
-      <i class="bi bi-person-badge{{ '-fill' if request.endpoint == 'profile' else '' }}"></i>
-      <span>Workspace</span>
-    </a>
-  </nav>
+  {% if current_user.is_authenticated and active_team %}
+    <nav class="bottom-nav fixed-bottom bg-white border-top shadow-sm">
+      <div class="container d-flex justify-content-around align-items-center py-2" style="max-width: 680px;">
+        <a href="{{ url_for('dashboard') }}" class="nav-link text-center {{ 'active text-primary fw-bold' if request.endpoint == 'dashboard' else 'text-muted' }}">
+          <i class="bi bi-grid-1x2-fill d-block fs-5"></i>
+          <span style="font-size: 0.68rem;">Overview</span>
+        </a>
 
-  <!-- Quick Action Modal -->
-  <div class="modal fade" id="quickCreateModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
-      <div class="modal-content border-0 rounded-4">
-        <div class="modal-header border-0 pb-1">
-          <h6 class="modal-title fw-bold">Quick Action — {{ active_team.name if active_team else 'Workspace' }}</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <a href="{{ url_for('my_transactions') }}" class="nav-link text-center {{ 'active text-primary fw-bold' if request.endpoint == 'my_transactions' else 'text-muted' }}">
+          <i class="bi bi-wallet2 d-block fs-5"></i>
+          <span style="font-size: 0.68rem;">My Ledger</span>
+        </a>
+
+        <!-- Center + Button: Opens Quick Action Sheet with Scan & Pay Shop QR -->
+        <button type="button"
+                class="btn btn-primary rounded-circle shadow d-inline-flex align-items-center justify-content-center"
+                style="width: 52px; height: 52px; margin-top: -22px; border: 4px solid #fff;"
+                data-bs-toggle="modal"
+                data-bs-target="#quickPlusMenuModal"
+                aria-label="Quick Actions">
+          <i class="bi bi-plus-lg fs-4"></i>
+        </button>
+
+        <a href="{{ url_for('feed') }}" class="nav-link text-center {{ 'active text-primary fw-bold' if request.endpoint == 'feed' else 'text-muted' }}">
+          <i class="bi bi-collection-play d-block fs-5"></i>
+          <span style="font-size: 0.68rem;">Feed</span>
+        </a>
+
+        <a href="{{ url_for('profile') }}" class="nav-link text-center {{ 'active text-primary fw-bold' if request.endpoint == 'profile' else 'text-muted' }}">
+          <i class="bi bi-person-badge d-block fs-5"></i>
+          <span style="font-size: 0.68rem;">Workspace</span>
+        </a>
+      </div>
+    </nav>
+
+    <!-- Quick Action Menu under Center + Button -->
+    <div class="modal fade" id="quickPlusMenuModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4">
+          <div class="modal-header border-0 pb-1">
+            <div>
+              <h6 class="modal-title fw-bold mb-0">Quick Actions</h6>
+              <small class="text-muted">{{ active_team.name }}</small>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body pt-2 d-grid gap-2">
+            <!-- Primary Option: Scan & Pay Shop QR -->
+            <button type="button"
+                    class="btn btn-primary rounded-4 p-3 text-start d-flex align-items-center justify-content-between shadow-sm"
+                    onclick="openGlobalScanPayModal()">
+              <div class="d-flex align-items-center gap-3">
+                <span class="bg-white text-primary rounded-circle d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width: 40px; height: 40px;">
+                  <i class="bi bi-qr-code-scan fs-5"></i>
+                </span>
+                <div>
+                  <div class="fw-bold">Scan &amp; Pay Shop QR</div>
+                  <div class="small text-white-50">Pay via phone app with URN &amp; auto-submit bill</div>
+                </div>
+              </div>
+              <i class="bi bi-chevron-right"></i>
+            </button>
+
+            <!-- Secondary Option: Manual Bill / Treasury Entry -->
+            <a href="{{ url_for('dashboard') }}#manualEntryCard"
+               class="btn btn-light border rounded-4 p-3 text-start d-flex align-items-center justify-content-between">
+              <div class="d-flex align-items-center gap-3">
+                <span class="bg-success bg-opacity-10 text-success rounded-circle d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width: 40px; height: 40px;">
+                  <i class="bi bi-receipt fs-5"></i>
+                </span>
+                <div>
+                  <div class="fw-bold text-dark">{{ 'Record Treasury Entry' if is_cashier else 'Submit Bill / Deposit' }}</div>
+                  <div class="small text-muted">Add a bill claim or ledger entry manually</div>
+                </div>
+              </div>
+              <i class="bi bi-chevron-right text-muted"></i>
+            </a>
+
+            <!-- Tertiary Option: Feed Post / Poll -->
+            <a href="{{ url_for('feed') }}"
+               class="btn btn-light border rounded-4 p-3 text-start d-flex align-items-center justify-content-between">
+              <div class="d-flex align-items-center gap-3">
+                <span class="bg-info bg-opacity-10 text-info rounded-circle d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width: 40px; height: 40px;">
+                  <i class="bi bi-megaphone fs-5"></i>
+                </span>
+                <div>
+                  <div class="fw-bold text-dark">Post Update or Poll</div>
+                  <div class="small text-muted">Share a photo or poll in team feed</div>
+                </div>
+              </div>
+              <i class="bi bi-chevron-right text-muted"></i>
+            </a>
+          </div>
         </div>
-        <div class="modal-body pt-2">
-          <ul class="nav nav-pills nav-fill mb-3 gap-1 bg-light p-1 rounded-pill" role="tablist">
-            <li class="nav-item">
-              <button class="nav-link active py-1 small rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-bill-claim">Share Bill</button>
-            </li>
-            <li class="nav-item">
-              <button class="nav-link py-1 small rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-feed-post">Post / Poll</button>
-            </li>
-            {% if is_cashier %}
-            <li class="nav-item">
-              <button class="nav-link py-1 small rounded-pill" data-bs-toggle="pill" data-bs-target="#tab-cashier-entry">Cashier Entry</button>
-            </li>
-            {% endif %}
-          </ul>
+      </div>
+    </div>
 
-          <div class="tab-content">
-            <div class="tab-pane fade show active" id="tab-bill-claim">
-              <form method="POST" action="{{ url_for('submit_claim') }}">
-                <div class="row g-2 mb-2">
-                  <div class="col-5">
-                    <label class="form-label small text-muted mb-1">Amount (₹)</label>
-                    <input type="number" step="0.01" name="amount" class="form-control form-control-sm num-tabular" placeholder="0.00" required>
-                  </div>
-                  <div class="col-7">
-                    <label class="form-label small text-muted mb-1">Category</label>
-                    <select name="category" class="form-select form-select-sm" onchange="toggleSpecifyInput(this, 'modalClaimSpecifyWrap')" required>
-                      {% for cat in global_categories %}
-                        <option value="{{ cat }}">{{ cat }} {{ '(Credit)' if cat == 'Monthly Deposit' else '(Debit)' }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                </div>
-                <div class="mb-2 d-none" id="modalClaimSpecifyWrap">
-                  <input type="text" name="custom_category" class="form-control form-control-sm" placeholder="Specify item / expense name">
-                </div>
-                <div class="mb-3">
-                  <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Notes / vendor / date details" required>
-                </div>
-                <button class="btn btn-success btn-sm w-100 rounded-pill py-2">Submit for Cashier Approval</button>
-              </form>
+    <!-- Global Scan & Pay Vendor QR Modal -->
+    <div class="modal fade" id="scanVendorQrModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 rounded-4">
+          <div class="modal-header border-0 pb-1">
+            <div>
+              <h6 class="modal-title fw-bold mb-0"><i class="bi bi-qr-code-scan text-primary me-1"></i>Scan &amp; Pay Shop QR</h6>
+              <small class="text-muted">Scan QR, enter item &amp; amount, pay via phone app with URN</small>
             </div>
-
-            <div class="tab-pane fade" id="tab-feed-post">
-              <form method="POST" action="{{ url_for('feed') }}" enctype="multipart/form-data">
-                <div class="d-flex gap-2 mb-2 flex-wrap">
-                  <select name="tag" class="form-select form-select-sm w-auto">
-                    <option value="Update">Team Update</option>
-                    <option value="Groceries">Groceries</option>
-                    <option value="Bills & Rent">Bills & Rent</option>
-                    <option value="Outing">Outing</option>
-                  </select>
-                  <input type="file" name="photo" accept="image/*" class="form-control form-control-sm flex-grow-1">
-                </div>
-                <div class="mb-2">
-                  <textarea name="content" rows="2" class="form-control form-control-sm" placeholder="Write a caption or update..."></textarea>
-                </div>
-                <div class="bg-light p-2 rounded-3 mb-3 border">
-                  <div class="small fw-semibold text-primary mb-1">Optional Poll</div>
-                  <input type="text" name="poll_question" class="form-control form-control-sm mb-1" placeholder="Poll question">
-                  <div class="row g-1">
-                    <div class="col-6"><input type="text" name="poll_opt_1" class="form-control form-control-sm" placeholder="Option 1"></div>
-                    <div class="col-6"><input type="text" name="poll_opt_2" class="form-control form-control-sm" placeholder="Option 2"></div>
-                  </div>
-                </div>
-                <button class="btn btn-primary btn-sm w-100 rounded-pill py-2">Publish to Team Feed</button>
-              </form>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="stopVendorQrScanner()"></button>
+          </div>
+          <div class="modal-body pt-2">
+            <div class="d-flex gap-2 mb-2">
+              <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="startVendorQrScanner()">
+                <i class="bi bi-camera-video me-1"></i>Start Camera
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="stopVendorQrScanner()">
+                Stop Camera
+              </button>
             </div>
+            <div id="qr-reader" class="mb-3 rounded-3 overflow-hidden" style="width: 100%; max-width: 360px;"></div>
 
-            {% if is_cashier %}
-            <div class="tab-pane fade" id="tab-cashier-entry">
-              <form method="POST" action="{{ url_for('cashier_transaction') }}">
-                <div class="row g-2 mb-2">
-                  <div class="col-6">
-                    <select name="tx_type" class="form-select form-select-sm" required>
-                      <option value="opening">Opening Balance</option>
-                      <option value="credit">Credit (+ Add)</option>
-                      <option value="debit">Debit (- Expense)</option>
-                    </select>
-                  </div>
-                  <div class="col-6">
-                    <input type="number" step="0.01" name="amount" class="form-control form-control-sm num-tabular" placeholder="Amount (₹)" required>
-                  </div>
+            <form id="scanPayAutoClaimForm" method="POST" action="{{ url_for('scan_pay_and_auto_claim') }}">
+              <div class="row g-2 mb-2">
+                <div class="col-6">
+                  <label class="form-label small text-muted mb-1">Vendor UPI ID (VPA)</label>
+                  <input type="text" name="vendor_vpa" id="vendorVpaInput" class="form-control form-control-sm" placeholder="shop@upi" required>
                 </div>
-                <div class="mb-2">
-                  <select name="category" class="form-select form-select-sm" onchange="toggleSpecifyInput(this, 'modalCashierSpecifyWrap')" required>
-                    {% for cat in global_categories %}
+                <div class="col-6">
+                  <label class="form-label small text-muted mb-1">Shop / Vendor Name</label>
+                  <input type="text" name="vendor_name" id="vendorNameInput" class="form-control form-control-sm" placeholder="e.g., Grocery Store" required>
+                </div>
+              </div>
+
+              <div class="row g-2 mb-2">
+                <div class="col-6">
+                  <label class="form-label small text-muted mb-1">Paying For (Material / Item)</label>
+                  <input type="text" name="material" id="vendorMaterialInput" class="form-control form-control-sm" placeholder="e.g., Groceries, Vegetables" required>
+                </div>
+                <div class="col-6">
+                  <label class="form-label small text-muted mb-1">Category</label>
+                  <select name="category" class="form-select form-select-sm" onchange="toggleSpecifyInput(this, 'qrCustomCatWrap')" required>
+                    {% for cat in global_expense_categories %}
                       <option value="{{ cat }}">{{ cat }}</option>
                     {% endfor %}
                   </select>
                 </div>
-                <div class="mb-2 d-none" id="modalCashierSpecifyWrap">
-                  <input type="text" name="custom_category" class="form-control form-control-sm" placeholder="Specify item / expense name">
-                </div>
-                <div class="mb-3">
-                  <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Ledger remarks" required>
-                </div>
-                <button class="btn btn-dark btn-sm w-100 rounded-pill py-2">Record Ledger Entry</button>
-              </form>
-            </div>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Notifications Modal -->
-  <div class="modal fade" id="notificationsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">
-      <div class="modal-content border-0 rounded-4">
-        <div class="modal-header border-0 pb-2">
-          <div>
-            <h6 class="modal-title fw-bold mb-0"><i class="bi bi-bell-fill text-primary me-1"></i>Notifications</h6>
-            <small class="text-muted">Approvals, QR requests & team alerts</small>
-          </div>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body pt-0">
-          <div class="p-2 px-3 rounded-3 bg-light border d-flex justify-content-between align-items-center gap-2 mb-3">
-            <div class="small min-w-0">
-              <div class="fw-semibold">Device Push Alerts</div>
-              <div class="text-muted text-truncate" id="pushStatusText" style="font-size: 0.72rem;">
-                {{ 'Enabled on this device' if has_push_sub else 'Receive instant alerts even when closed' }}
               </div>
-            </div>
-            <button type="button" id="enablePushBtn" class="btn btn-sm btn-primary rounded-pill px-3 flex-shrink-0" onclick="subscribeToWebPush()">
-              {{ 'Refresh Push' if has_push_sub else 'Enable' }}
-            </button>
-          </div>
 
-          {% if unread_notifications_count > 0 %}
-            <form method="POST" action="{{ url_for('mark_all_notifications_read') }}" class="mb-2 text-end">
-              <button type="submit" class="btn btn-sm btn-link text-decoration-none p-0 small fw-semibold">Mark all as read</button>
+              <div class="mb-2 d-none" id="qrCustomCatWrap">
+                <input type="text" name="custom_category" class="form-control form-control-sm" placeholder="Specify custom expense item">
+              </div>
+
+              <div class="row g-2 mb-3">
+                <div class="col-5">
+                  <label class="form-label small text-muted mb-1">Amount (₹)</label>
+                  <input type="number" step="0.01" name="amount" id="vendorAmountInput" class="form-control form-control-sm num-tabular" placeholder="0.00" required>
+                </div>
+                <div class="col-7">
+                  <label class="form-label small text-muted mb-1">Message (Optional)</label>
+                  <input type="text" name="remarks" id="vendorRemarksInput" class="form-control form-control-sm" placeholder="Optional note">
+                </div>
+              </div>
+
+              <div id="scanPayResultBox" class="alert alert-info small py-2 px-3 rounded-3 d-none mb-2"></div>
+              <button type="submit" class="btn btn-primary btn-sm w-100 rounded-pill py-2">
+                <i class="bi bi-send-check me-1"></i>Pay via Phone App (URN Message) &amp; Auto-Submit Bill
+              </button>
             </form>
-          {% endif %}
-
-          {% for n in recent_notifications %}
-            <a href="{{ n.link_url or '/' }}" class="d-block text-decoration-none text-reset p-3 rounded-3 border mb-2 {{ 'bg-primary bg-opacity-10 border-primary border-opacity-25' if not n.is_read else 'bg-white' }}">
-              <div class="d-flex justify-content-between align-items-start gap-2">
-                <div class="fw-bold small">{{ n.title }}</div>
-                {% if not n.is_read %}
-                  <span class="badge bg-primary rounded-pill" style="font-size: 0.6rem;">NEW</span>
-                {% endif %}
-              </div>
-              <div class="small text-secondary mt-1">{{ n.body }}</div>
-              <div class="text-muted mt-1" style="font-size: 0.68rem;">{{ n.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
-            </a>
-          {% else %}
-            <div class="text-center text-muted small py-4">No notifications yet.</div>
-          {% endfor %}
+          </div>
         </div>
       </div>
     </div>
-  </div>
+
+    <!-- Notifications Modal -->
+    <div class="modal fade" id="notificationsModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 rounded-4">
+          <div class="modal-header border-0 pb-1">
+            <div>
+              <h6 class="modal-title fw-bold mb-0"><i class="bi bi-bell-fill text-primary me-1"></i>Notifications</h6>
+              <small class="text-muted">Recent updates in your workspace</small>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body pt-2">
+            {% for n in recent_notifications %}
+              <a href="{{ n.link_url }}" class="d-block text-decoration-none border rounded-3 p-2 mb-2 {{ 'bg-primary bg-opacity-10 border-primary border-opacity-25' if not n.is_read else 'bg-light' }}">
+                <div class="fw-bold small text-dark">{{ n.title }}</div>
+                <div class="small text-secondary">{{ n.body }}</div>
+                <div class="text-muted mt-1" style="font-size: 0.68rem;">{{ n.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+              </a>
+            {% else %}
+              <p class="text-muted small text-center py-3 mb-0">No notifications yet.</p>
+            {% endfor %}
+          </div>
+          <div class="modal-footer border-0 pt-0">
+            <form method="POST" action="{{ url_for('mark_all_notifications_read') }}" class="m-0 w-100">
+              <button type="submit" class="btn btn-sm btn-outline-primary w-100 rounded-pill">Mark All as Read</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
   {% endif %}
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
   <script>
-    const VAPID_PUBLIC_KEY = "{{ vapid_public_key }}";
-
     function toggleSpecifyInput(selectEl, wrapId) {
       const wrap = document.getElementById(wrapId);
-      if (!wrap) return;
-      if (selectEl.value === 'Others (Specify)') {
-        wrap.classList.remove('d-none');
+      if (!wrap || !selectEl) return;
+      if (selectEl.value === "Others (Specify)") {
+        wrap.classList.remove("d-none");
       } else {
-        wrap.classList.add('d-none');
+        wrap.classList.add("d-none");
       }
     }
 
-    function urlBase64ToUint8Array(base64String) {
-      const padding = '='.repeat((4 - base64String.length % 4) % 4);
-      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-      const rawData = window.atob(base64);
-      const outputArray = new Uint8Array(rawData.length);
-      for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
+    let globalHtml5QrInstance = null;
+
+    function openGlobalScanPayModal() {
+      const menuEl = document.getElementById('quickPlusMenuModal');
+      const menuModal = menuEl ? bootstrap.Modal.getInstance(menuEl) : null;
+      if (menuModal) menuModal.hide();
+
+      const scanEl = document.getElementById('scanVendorQrModal');
+      if (scanEl) {
+        bootstrap.Modal.getOrCreateInstance(scanEl).show();
+        setTimeout(() => startVendorQrScanner(), 350);
       }
-      return outputArray;
     }
 
-    async function subscribeToWebPush() {
-      const statusEl = document.getElementById('pushStatusText');
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        if (statusEl) statusEl.textContent = 'Push notifications are not supported on this browser.';
-        return;
+    function startVendorQrScanner() {
+      if (!window.Html5Qrcode || !document.getElementById('qr-reader')) return;
+      if (!globalHtml5QrInstance) {
+        globalHtml5QrInstance = new Html5Qrcode("qr-reader");
       }
-      if (!VAPID_PUBLIC_KEY) {
-        if (statusEl) statusEl.textContent = 'In-app alerts active (configure VAPID_PUBLIC_KEY on server for device push).';
-        return;
+      if (globalHtml5QrInstance.isScanning) return;
+
+      globalHtml5QrInstance.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 220 },
+        (decodedText) => {
+          if (decodedText.toLowerCase().startsWith("upi://pay")) {
+            try {
+              const url = new URL(decodedText);
+              const pa = url.searchParams.get("pa");
+              const pn = url.searchParams.get("pn");
+              const am = url.searchParams.get("am");
+              if (pa) document.getElementById("vendorVpaInput").value = pa;
+              if (pn) document.getElementById("vendorNameInput").value = decodeURIComponent(pn);
+              if (am) document.getElementById("vendorAmountInput").value = am;
+            } catch (e) {}
+          }
+          stopVendorQrScanner();
+        },
+        () => {}
+      ).catch(() => {});
+    }
+
+    function stopVendorQrScanner() {
+      if (globalHtml5QrInstance && globalHtml5QrInstance.isScanning) {
+        globalHtml5QrInstance.stop().catch(() => {});
       }
+    }
+
+    document.getElementById('scanVendorQrModal')?.addEventListener('hidden.bs.modal', stopVendorQrScanner);
+
+    document.getElementById('scanPayAutoClaimForm')?.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const form = e.target;
+      const resultBox = document.getElementById('scanPayResultBox');
+      const formData = new FormData(form);
+
       try {
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-          if (statusEl) statusEl.textContent = 'Notification permission was blocked in browser settings.';
+        const resp = await fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await resp.json();
+        if (!data.ok) {
+          if (resultBox) {
+            resultBox.className = 'alert alert-danger small py-2 px-3 rounded-3 mb-2';
+            resultBox.textContent = data.error || 'Could not process request.';
+            resultBox.classList.remove('d-none');
+          }
           return;
         }
-        const reg = await navigator.serviceWorker.ready;
-        const sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-        });
-        await fetch('/push/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(sub.toJSON())
-        });
-        if (statusEl) statusEl.textContent = 'Device push notifications enabled!';
+
+        if (resultBox) {
+          resultBox.className = 'alert alert-success small py-2 px-3 rounded-3 mb-2';
+          resultBox.innerHTML = `
+            <div class="fw-bold">URN: ${data.urn}</div>
+            <div>Bill auto-submitted for Cashier approval. Opening your phone's UPI app...</div>
+            <div class="mt-2 d-flex gap-2">
+              <a href="${data.upi_url}" class="btn btn-sm btn-dark rounded-pill px-3">Open UPI App</a>
+              <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3" onclick="window.location.reload()">Done</button>
+            </div>
+          `;
+          resultBox.classList.remove('d-none');
+        }
+
+        window.location.href = data.upi_url;
       } catch (err) {
-        if (statusEl) statusEl.textContent = 'Could not enable push: ' + err.message;
+        if (resultBox) {
+          resultBox.className = 'alert alert-danger small py-2 px-3 rounded-3 mb-2';
+          resultBox.textContent = 'Error: ' + err.message;
+          resultBox.classList.remove('d-none');
+        }
       }
-    }
+    });
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js');
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register("{{ url_for('service_worker') }}").catch(() => {});
+      });
     }
   </script>
   {% block scripts %}{% endblock %}
