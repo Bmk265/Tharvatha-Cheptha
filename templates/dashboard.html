@@ -197,7 +197,7 @@
   </div>
 </div>
 
-<!-- Cashier Approvals: Pending Bills & Approved Unpaid Bills with Pay Option -->
+<!-- Cashier Approvals: Pending Bills & Approved Unpaid Bills with Pay + Mark as Paid -->
 {% if is_cashier %}
   <div class="card p-3 mb-3 border-warning border-opacity-50">
     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -207,6 +207,7 @@
 
     {% for c in pending_claims %}
       {% set is_dep = (c.category == "Monthly Deposit") %}
+      {% set member_upi = c.member_upi or (c.user.upi_id if c.user and c.user.upi_id else '') %}
       <div class="border rounded-4 p-3 mb-2 bg-light">
         <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
           <div class="min-w-0">
@@ -227,14 +228,14 @@
             </form>
             <button type="button"
                     class="btn btn-sm btn-primary rounded-pill px-3"
-                    onclick="openCashierPayModal({{ c.id }}, '{{ (c.user.name if c.user else 'Member')|e }}', '{{ '%.2f'|format(c.amount) }}', '{{ (c.category or '')|e }}', '{{ (c.urn or '')|e }}', '{{ (c.vendor_vpa or '')|e }}', '{{ (c.vendor_name or '')|e }}', '{{ (c.remarks or '')|e }}')">
+                    onclick="openCashierPayModal({{ c.id }}, '{{ (c.user.name if c.user else 'Member')|e }}', '{{ '%.2f'|format(c.amount) }}', '{{ (c.category or '')|e }}', '{{ (c.urn or '')|e }}', '{{ member_upi|e }}', '{{ (c.vendor_vpa or '')|e }}', '{{ (c.vendor_name or '')|e }}', '{{ (c.remarks or '')|e }}')">
               <i class="bi bi-wallet2 me-1"></i>Pay
             </button>
             <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='reject') }}" class="m-0">
               <button class="btn btn-sm btn-outline-danger rounded-pill px-2">Reject</button>
             </form>
             {% if is_super_admin %}
-              <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" class="m-0" onsubmit="return confirm('Delete this bill claim?');">
+              <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" class="m-0" onsubmit="return confirm('Delete this bill and remove from ledger?');">
                 <button class="btn btn-sm btn-dark rounded-pill px-2" title="Delete"><i class="bi bi-trash"></i></button>
               </form>
             {% endif %}
@@ -253,6 +254,7 @@
       <span class="badge bg-primary rounded-pill">{{ approved_unpaid_claims|length }}</span>
     </div>
     {% for c in approved_unpaid_claims %}
+      {% set member_upi = c.member_upi or (c.user.upi_id if c.user and c.user.upi_id else '') %}
       <div class="border rounded-4 p-3 mb-2 bg-light d-flex justify-content-between align-items-start gap-2 flex-wrap">
         <div class="min-w-0">
           <div class="fw-bold small num-tabular">{{ c.user.name }} • ₹{{ "%.2f"|format(c.amount) }} • {{ c.category }}</div>
@@ -261,11 +263,18 @@
           {% endif %}
           <div class="small text-muted text-truncate">{{ c.remarks }}</div>
         </div>
-        <button type="button"
-                class="btn btn-sm btn-primary rounded-pill px-3 flex-shrink-0"
-                onclick="openCashierPayModal({{ c.id }}, '{{ (c.user.name if c.user else 'Member')|e }}', '{{ '%.2f'|format(c.amount) }}', '{{ (c.category or '')|e }}', '{{ (c.urn or '')|e }}', '{{ (c.vendor_vpa or '')|e }}', '{{ (c.vendor_name or '')|e }}', '{{ (c.remarks or '')|e }}')">
-          <i class="bi bi-box-arrow-up-right me-1"></i>Pay with URN
-        </button>
+        <div class="d-flex gap-1 flex-shrink-0 flex-wrap">
+          <button type="button"
+                  class="btn btn-sm btn-primary rounded-pill px-3"
+                  onclick="openCashierPayModal({{ c.id }}, '{{ (c.user.name if c.user else 'Member')|e }}', '{{ '%.2f'|format(c.amount) }}', '{{ (c.category or '')|e }}', '{{ (c.urn or '')|e }}', '{{ member_upi|e }}', '{{ (c.vendor_vpa or '')|e }}', '{{ (c.vendor_name or '')|e }}', '{{ (c.remarks or '')|e }}')">
+            <i class="bi bi-box-arrow-up-right me-1"></i>Pay with URN
+          </button>
+          <form method="POST" action="{{ url_for('mark_claim_paid', claim_id=c.id) }}" class="m-0">
+            <button type="submit" class="btn btn-sm btn-success rounded-pill px-3">
+              <i class="bi bi-check2 me-1"></i>Mark as Paid
+            </button>
+          </form>
+        </div>
       </div>
     {% endfor %}
   </div>
@@ -403,8 +412,17 @@
         </div>
         <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ b.remarks }} • {{ b.created_at.strftime('%d %b %Y') }}</div>
       </div>
-      <div class="fw-bold small num-tabular text-end flex-shrink-0 {{ 'text-success' if is_dep else 'text-danger' }}">
-        {{ '+' if is_dep else '-' }}₹{{ "%.2f"|format(b.amount) }}
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <div class="fw-bold small num-tabular text-end {{ 'text-success' if is_dep else 'text-danger' }}">
+          {{ '+' if is_dep else '-' }}₹{{ "%.2f"|format(b.amount) }}
+        </div>
+        {% if is_super_admin %}
+          <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=b.id) }}" class="m-0" onsubmit="return confirm('Delete this bill and remove from ledger?');">
+            <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill py-0 px-2" title="Delete sample transaction">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        {% endif %}
       </div>
     </div>
   {% else %}
@@ -420,7 +438,7 @@
   {% for e in all_ledger_entries[:10] %}
     <div class="d-flex justify-content-between align-items-center py-2 border-bottom small gap-2">
       <span class="text-truncate num-tabular"><strong>{{ e.category }}</strong> • ₹{{ "%.2f"|format(e.amount) }} ({{ e.remarks or '—' }})</span>
-      <form method="POST" action="{{ url_for('super_admin_delete_ledger', entry_id=e.id) }}" class="m-0" onsubmit="return confirm('Delete this ledger entry?');">
+      <form method="POST" action="{{ url_for('super_admin_delete_ledger', entry_id=e.id) }}" class="m-0" onsubmit="return confirm('Delete this ledger entry and linked records?');">
         <button class="btn btn-sm btn-outline-danger rounded-pill py-0 px-2">Delete</button>
       </form>
     </div>
@@ -432,7 +450,7 @@
   {% for c in all_claims[:10] %}
     <div class="d-flex justify-content-between align-items-center py-2 border-bottom small gap-2">
       <span class="text-truncate num-tabular">{{ c.user.name }} • {{ c.category }} • ₹{{ "%.2f"|format(c.amount) }} [{{ c.status }}]</span>
-      <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" class="m-0" onsubmit="return confirm('Delete this bill claim?');">
+      <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" class="m-0" onsubmit="return confirm('Delete this bill claim and linked records?');">
         <button class="btn btn-sm btn-outline-danger rounded-pill py-0 px-2">Delete</button>
       </form>
     </div>
@@ -442,7 +460,7 @@
 </div>
 {% endif %}
 
-<!-- Scan & Pay Vendor QR Modal (Roommate: What, How Much, Optional Message, URN + Phone App Chooser + Auto-Submit Bill) -->
+<!-- Scan & Pay Vendor QR Modal -->
 <div class="modal fade" id="scanVendorQrModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content border-0 rounded-4">
@@ -516,7 +534,7 @@
   </div>
 </div>
 
-<!-- Cashier Approve & Pay Modal (Uses Same URN + Chooses Payment Method / Phone UPI App) -->
+<!-- Cashier Approve & Pay Modal (Defaults to Team Member's UPI ID + Uses Same URN) -->
 {% if is_cashier %}
 <div class="modal fade" id="cashierPayModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -524,7 +542,7 @@
       <div class="modal-header border-0 pb-1">
         <div>
           <h6 class="modal-title fw-bold mb-0"><i class="bi bi-wallet2 text-primary me-1"></i>Approve &amp; Pay Bill</h6>
-          <small class="text-muted" id="cashierPaySubtitle">Settle using the transaction URN</small>
+          <small class="text-muted" id="cashierPaySubtitle">Settle to team member using the transaction URN</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -551,9 +569,10 @@
             </select>
           </div>
 
-          <div class="mb-3" id="cashierDirectVpaWrap">
-            <label class="form-label small text-muted mb-1">Payee UPI ID (Optional if paying member/vendor directly)</label>
-            <input type="text" id="cashierPayeeVpaInput" class="form-control form-control-sm" placeholder="payee@upi" oninput="updateCashierUpiLink()">
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-1">Team Member UPI ID (Reimbursement Payee)</label>
+            <input type="text" name="payee_upi" id="cashierPayeeUpiInput" class="form-control form-control-sm" placeholder="member@upi" oninput="updateCashierUpiLink()">
+            <div class="form-text" style="font-size: 0.68rem;">Set in member's Workspace profile or enter here before opening UPI app.</div>
           </div>
 
           <div class="d-grid gap-2 mb-2">
@@ -605,7 +624,7 @@
   let html5QrInstance = null;
   let activeCashierPayAmount = "0.00";
   let activeCashierPayUrn = "";
-  let activeCashierPayeeName = "Member";
+  let activeCashierMemberName = "Member";
 
   function escapeHtml(text) {
     const div = document.createElement('div');
@@ -691,13 +710,13 @@
   });
 
   function updateCashierUpiLink() {
-    const vpaEl = document.getElementById('cashierPayeeVpaInput');
+    const vpaEl = document.getElementById('cashierPayeeUpiInput');
     const linkEl = document.getElementById('cashierOpenUpiAppBtn');
     const methodEl = document.getElementById('cashierPaymentMethodSelect');
     if (!linkEl) return;
 
     const vpa = (vpaEl ? vpaEl.value : '').trim();
-    const pn = encodeURIComponent(activeCashierPayeeName || 'Payee');
+    const pn = encodeURIComponent(activeCashierMemberName || 'Member');
     const tn = encodeURIComponent(activeCashierPayUrn || '');
     const am = encodeURIComponent(activeCashierPayAmount || '0.00');
 
@@ -713,19 +732,22 @@
     }
   }
 
-  function openCashierPayModal(claimId, userName, amountStr, category, urn, vendorVpa, vendorName, remarks) {
+  function openCashierPayModal(claimId, userName, amountStr, category, urn, memberUpi, vendorVpa, vendorName, remarks) {
     activeCashierPayAmount = amountStr || "0.00";
     activeCashierPayUrn = urn || ("CLM-" + claimId);
-    activeCashierPayeeName = vendorName || userName || "Member";
+    activeCashierMemberName = userName || "Member";
 
     const form = document.getElementById('cashierPayForm');
     form.action = `/claims/${claimId}/approve-and-pay`;
 
-    document.getElementById('cashierPaySubtitle').textContent = `${userName} • ${category}`;
+    document.getElementById('cashierPaySubtitle').textContent = `Pay ${userName} • ${category}`;
     document.getElementById('cashierPayAmountText').textContent = `₹${activeCashierPayAmount}`;
     document.getElementById('cashierPayUrnText').textContent = activeCashierPayUrn;
-    document.getElementById('cashierPayDetailsText').textContent = remarks || '';
-    document.getElementById('cashierPayeeVpaInput').value = vendorVpa || '';
+
+    const shopContext = vendorVpa ? ` • Merchant QR paid earlier: ${vendorName || ''} (${vendorVpa})` : '';
+    document.getElementById('cashierPayDetailsText').textContent = (remarks || '') + shopContext;
+
+    document.getElementById('cashierPayeeUpiInput').value = memberUpi || '';
 
     updateCashierUpiLink();
     bootstrap.Modal.getOrCreateInstance(document.getElementById('cashierPayModal')).show();
