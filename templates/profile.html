@@ -11,7 +11,10 @@
 
     <div class="flex-grow-1 min-w-0">
       <h5 class="fw-bold mb-0 text-truncate">{{ current_user.name }}</h5>
-      <div class="small text-muted text-truncate mb-2">{{ current_user.email }}</div>
+      <div class="small text-muted text-truncate mb-1">{{ current_user.email }}</div>
+      {% if current_user.upi_id %}
+        <div class="small text-primary fw-semibold text-truncate mb-2">UPI: {{ current_user.upi_id }}</div>
+      {% endif %}
       <div class="d-flex gap-1 flex-wrap">
         {% if is_super_admin %}
           <span class="badge bg-warning text-dark rounded-pill px-2 py-1" style="font-size: 0.65rem;">SUPER ADMIN</span>
@@ -115,7 +118,9 @@
               {{ tm.user.name }}
               <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary' }} rounded-pill ms-1" style="font-size: 0.62rem;">{{ tm.role|upper }}</span>
             </div>
-            <div class="text-muted text-truncate" style="font-size: 0.72rem;">{{ tm.user.email }}</div>
+            <div class="text-muted text-truncate" style="font-size: 0.72rem;">
+              {{ tm.user.email }}{% if tm.user.upi_id %} • UPI: {{ tm.user.upi_id }}{% endif %}
+            </div>
           </div>
         </div>
 
@@ -144,10 +149,14 @@
       <input type="text" name="name" value="{{ current_user.name }}" class="form-control form-control-sm" required>
     </div>
     <div class="col-12 col-sm-6">
+      <label class="form-label small text-muted mb-1">Your UPI ID (for Reimbursements)</label>
+      <input type="text" name="upi_id" value="{{ current_user.upi_id or '' }}" class="form-control form-control-sm" placeholder="yourname@upi">
+    </div>
+    <div class="col-12 col-sm-6">
       <label class="form-label small text-muted mb-1">New Password (optional)</label>
       <input type="password" name="new_password" class="form-control form-control-sm" placeholder="Leave blank to keep current">
     </div>
-    <div class="col-12">
+    <div class="col-12 col-sm-6">
       <label class="form-label small text-muted mb-1">Profile Photo (PNG, JPG, WEBP)</label>
       <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm">
     </div>
