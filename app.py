@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import uuid
 import hmac
@@ -6,7 +7,7 @@ import hashlib
 import base64
 from datetime import datetime
 from functools import wraps
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin, quote
 
 import requests
 from flask import (
@@ -110,6 +111,24 @@ def _format_category_and_remarks(category, custom_specify, remarks):
     return category, rem
 
 
+def _build_rich_urn(user_name, material_label, prefix="RM"):
+    safe_name = re.sub(r'[^A-Za-z0-9]', '', (user_name or 'USER').upper())[:8] or "USER"
+    safe_mat = re.sub(r'[^A-Za-z0-9]', '', (material_label or 'ITEM').upper())[:10] or "ITEM"
+    ts = datetime.now().strftime('%Y%m%d-%H%M')
+    token = uuid.uuid4().hex[:4].upper()
+    urn = f"{prefix}-{safe_name}-{ts}-{safe_mat}-{token}"
+    while WalletTransaction.query.filter_by(urn=urn).first():
+        urn = f"{prefix}-{safe_name}-{ts}-{safe_mat}-{uuid.uuid4().hex[:4].upper()}"
+    return urn
+
+
+def _extract_urn_from_remarks(remarks_text):
+    if not remarks_text:
+        return None
+    match = re.search(r'\[URN:\s*([A-Za-z0-9\-]+)\]', remarks_text)
+    return match.group(1) if match else None
+
+
 @app.errorhandler(413)
 def file_too_large(e):
     flash("Image file is too large. Please choose a photo under 20 MB.", "warning")
@@ -179,7 +198,11 @@ class BillClaim(db.Model):
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(100), nullable=False)
     remarks = db.Column(db.String(255), nullable=False)
+    vendor_vpa = db.Column(db.String(120), nullable=True)
+    vendor_name = db.Column(db.String(120), nullable=True)
+    urn = db.Column(db.String(64), nullable=True)
     status = db.Column(db.String(20), default='pending')  # 'pending', 'approved', 'rejected'
+    paid_status = db.Column(db.String(20), default='unpaid')  # 'unpaid', 'paid'
     created_at = db.Column(db.DateTime, default=datetime.now)
     user = db.relationship('User', backref='claims')
 
@@ -213,8 +236,8 @@ class WalletTransaction(db.Model):
     category = db.Column(db.String(100), nullable=False)
     remarks = db.Column(db.String(255), nullable=True)
     gateway_ref_id = db.Column(db.String(120), unique=True, nullable=True)
-    urn = db.Column(db.String(64), unique=True, nullable=True)  # Unique Reference Number for UPI trace
-    status = db.Column(db.String(25), default='pending')  # 'pending', 'approved_unpaid', 'success', 'rejected'
+    urn = db.Column(db.String(64), unique=True, nullable=True)
+    status = db.Column(db.String(25), default='pending')
     created_at = db.Column(db.DateTime, default=datetime.now)
     user = db.relationship('User', backref='wallet_transactions')
 
@@ -301,15 +324,6 @@ def get_or_create_wallet(team_id):
     return wallet
 
 
-def _generate_unique_urn(team_id, tx_id):
-    date_part = datetime.now().strftime('%Y%m%d')
-    rand_part = uuid.uuid4().hex[:6].upper()
-    urn = f"TP{team_id}T{tx_id}-{date_part}-{rand_part}"
-    while WalletTransaction.query.filter_by(urn=urn).first():
-        urn = f"TP{team_id}T{tx_id}-{date_part}-{uuid.uuid4().hex[:6].upper()}"
-    return urn
-
-
 def notify_users(team_id, recipient_user_ids, title, body, link_url='/'):
     unique_ids = set(recipient_user_ids)
     if not unique_ids:
@@ -360,7 +374,13 @@ def ensure_schema_and_default_team():
             ('is_super_admin', 'BOOLEAN DEFAULT FALSE'),
         ],
         'pool_ledger': [('team_id', 'INTEGER')],
-        'bill_claim': [('team_id', 'INTEGER')],
+        'bill_claim': [
+            ('team_id', 'INTEGER'),
+            ('vendor_vpa', 'VARCHAR(120)'),
+            ('vendor_name', 'VARCHAR(120)'),
+            ('urn', 'VARCHAR(64)'),
+            ('paid_status', "VARCHAR(20) DEFAULT 'unpaid'"),
+        ],
         'personal_transaction': [('team_id', 'INTEGER')],
         'chat_message': [('team_id', 'INTEGER')],
         'feed_post': [('image_path', 'VARCHAR(255)'), ('poll_question', 'VARCHAR(255)')],
@@ -762,7 +782,7 @@ def process_leave_request(req_id, action):
     return redirect(url_for('dashboard'))
 
 
-# ---------------- CASHFREE PG TOP-UP & OFFLINE VENDOR QR URN FLOW ----------------
+# ---------------- CASHFREE PG TOP-UP & SCAN-PAY -> AUTO-CLAIM -> CASHIER PAY ----------------
 @app.route('/wallet/pg/create-order', methods=['POST'])
 @login_required
 @team_and_cashier_required
@@ -870,34 +890,35 @@ def cashfree_pg_webhook():
     return jsonify({'status': 'ok'}), 200
 
 
-@app.route('/wallet/scan-pay/request', methods=['POST'])
+@app.route('/wallet/scan-pay/pay-and-claim', methods=['POST'])
 @login_required
-def request_vendor_qr_payment():
+def scan_pay_and_auto_claim():
     team, _ = get_active_team_context()
     if not team:
-        flash("Join or create a team workspace first.", "warning")
-        return redirect(url_for('profile'))
+        return jsonify({'ok': False, 'error': 'Join or create a team workspace first.'}), 400
 
     vendor_vpa = (request.form.get('vendor_vpa') or '').strip()
     vendor_name = (request.form.get('vendor_name') or 'Shop Vendor').strip()
-    category, remarks = _format_category_and_remarks(
-        request.form.get('category') or 'Vegetables',
-        request.form.get('custom_category', ''),
-        request.form.get('remarks', '')
-    )
+    material = (request.form.get('material') or '').strip()
+    optional_msg = (request.form.get('remarks') or '').strip()
+    raw_category = (request.form.get('category') or 'Vegetables').strip()
+    custom_cat = (request.form.get('custom_category') or '').strip()
+
     try:
         amount = round(float(request.form.get('amount') or 0), 2)
     except (TypeError, ValueError):
         amount = 0.0
 
-    if '@' not in vendor_vpa or amount <= 0:
-        flash("Please scan a valid vendor UPI QR code and enter a valid amount.", "warning")
-        return redirect(url_for('dashboard'))
+    if '@' not in vendor_vpa or amount <= 0 or not material:
+        return jsonify({'ok': False, 'error': 'Scan/enter a valid UPI ID, what you are paying for, and a valid amount.'}), 400
 
-    wallet = get_or_create_wallet(team.id)
-    if amount > (wallet.balance or 0.0):
-        flash(f"Insufficient wallet balance (Available: ₹{wallet.balance:.2f}).", "danger")
-        return redirect(url_for('dashboard'))
+    category, _ = _format_category_and_remarks(raw_category, custom_cat, '')
+    urn = _build_rich_urn(current_user.name, material, prefix="RM")
+
+    parts = [f"Material: {material}", f"Shop: {vendor_name} ({vendor_vpa})"]
+    if optional_msg:
+        parts.append(f"Msg: {optional_msg}")
+    full_remarks = f"[URN: {urn}] " + " • ".join(parts)
 
     db.session.add(WalletTransaction(
         team_id=team.id,
@@ -907,9 +928,24 @@ def request_vendor_qr_payment():
         vendor_vpa=vendor_vpa,
         vendor_name=vendor_name,
         category=category,
-        remarks=remarks or category,
+        remarks=full_remarks,
+        urn=urn,
         status='pending'
     ))
+
+    claim = BillClaim(
+        team_id=team.id,
+        user_id=current_user.id,
+        amount=amount,
+        category=category,
+        remarks=full_remarks,
+        vendor_vpa=vendor_vpa,
+        vendor_name=vendor_name,
+        urn=urn,
+        status='pending',
+        paid_status='unpaid'
+    )
+    db.session.add(claim)
 
     cashier_ids = [
         m.user_id for m in TeamMembership.query.filter_by(team_id=team.id, role='cashier').all()
@@ -918,69 +954,88 @@ def request_vendor_qr_payment():
     notify_users(
         team.id,
         cashier_ids,
-        f"Vendor QR Pay Request • {team.name}",
-        f"{current_user.name} requested ₹{amount:.2f} for {vendor_name} ({vendor_vpa}).",
+        f"Auto-Bill ({urn}) • {team.name}",
+        f"{current_user.name} paying ₹{amount:.2f} for {material} at {vendor_name}.",
         url_for('dashboard')
     )
     db.session.commit()
-    flash("Vendor QR payment submitted for Cashier approval.", "info")
-    return redirect(url_for('dashboard'))
+
+    upi_url = (
+        f"upi://pay?pa={quote(vendor_vpa)}"
+        f"&pn={quote(vendor_name)}"
+        f"&am={amount:.2f}&cu=INR&tn={quote(urn)}"
+    )
+
+    return jsonify({
+        'ok': True,
+        'urn': urn,
+        'claim_id': claim.id,
+        'vendor_vpa': vendor_vpa,
+        'vendor_name': vendor_name,
+        'amount': f"{amount:.2f}",
+        'upi_url': upi_url,
+        'message': f"URN {urn} generated & bill auto-submitted for Cashier approval."
+    })
 
 
-@app.route('/wallet/scan-pay/<int:tx_id>/<action>', methods=['POST'])
+@app.route('/claims/<int:claim_id>/approve-and-pay', methods=['POST'])
 @login_required
 @team_and_cashier_required
-def process_vendor_qr_payment(tx_id, action):
-    team, _ = get_active_team_context()
-    tx = WalletTransaction.query.filter_by(id=tx_id, team_id=team.id, tx_type='vendor_qr_pay').first_or_404()
+def approve_and_record_claim_payment(claim_id):
+    claim = BillClaim.query.get_or_404(claim_id)
+    team_name = claim.team.name if getattr(claim, 'team', None) else 'TEAM POOL'
+    payment_method = (request.form.get('payment_method') or 'UPI App').strip()
+    urn = claim.urn or _extract_urn_from_remarks(claim.remarks) or _build_rich_urn(
+        claim.user.name if claim.user else 'USER',
+        claim.category,
+        prefix="CSH"
+    )
+    claim.urn = urn
 
-    if tx.status != 'pending':
-        flash("Request already processed.", "warning")
-        return redirect(url_for('dashboard'))
+    if claim.status != 'approved':
+        claim.status = 'approved'
+        is_deposit = (claim.category == "Monthly Deposit")
+        ledger_type = 'credit' if is_deposit else 'debit'
 
-    wallet = get_or_create_wallet(team.id)
-
-    if action == 'approve':
-        if tx.amount > (wallet.balance or 0.0):
-            flash(f"Insufficient wallet balance (₹{wallet.balance:.2f}).", "danger")
-            return redirect(url_for('dashboard'))
-
-        urn = _generate_unique_urn(team.id, tx.id)
-        wallet.balance = round((wallet.balance or 0.0) - tx.amount, 2)
-        tx.urn = urn
-        tx.status = 'approved_unpaid'
-
-        note_suffix = f" — {tx.remarks}" if tx.remarks else ""
         db.session.add(PoolLedger(
-            team_id=team.id,
-            tx_type='debit',
-            amount=tx.amount,
-            category=tx.category,
-            remarks=f"[URN: {urn}] QR Pay to {tx.vendor_name} ({tx.vendor_vpa}){note_suffix}",
-            user_id=tx.user_id
+            team_id=claim.team_id,
+            tx_type=ledger_type,
+            amount=claim.amount,
+            category=claim.category,
+            remarks=f"[URN: {urn}] Approved & Paid ({payment_method}) [{claim.user.name}]: {claim.remarks}",
+            user_id=claim.user_id
         ))
 
-        notify_users(
-            team.id,
-            [tx.user_id],
-            f"QR Payment Approved • {team.name}",
-            f"Approved ₹{tx.amount:.2f} to {tx.vendor_name} • URN: {urn}",
-            url_for('dashboard')
-        )
-        flash(f"Approved ₹{tx.amount:.2f} • URN: {urn}. Use 'Pay via UPI App' to send with URN as note.", "success")
+        tm = TeamMembership.query.filter_by(team_id=claim.team_id, user_id=claim.user_id).first()
+        if tm:
+            if is_deposit:
+                tm.personal_balance += claim.amount
+            else:
+                tm.personal_balance -= claim.amount
 
-    elif action == 'reject':
-        tx.status = 'rejected'
-        notify_users(
-            team.id,
-            [tx.user_id],
-            f"QR Payment Rejected • {team.name}",
-            f"Your ₹{tx.amount:.2f} request for {tx.vendor_name} was rejected.",
-            url_for('dashboard')
-        )
-        flash("Vendor QR payment request rejected.", "secondary")
+        db.session.add(PersonalTransaction(
+            team_id=claim.team_id,
+            user_id=claim.user_id,
+            tx_type=ledger_type,
+            amount=claim.amount,
+            category=claim.category,
+            remarks=f"[URN: {urn}] Paid via {payment_method}: {claim.remarks}"
+        ))
 
+    claim.paid_status = 'paid'
+    wtx = WalletTransaction.query.filter_by(urn=urn).first()
+    if wtx:
+        wtx.status = 'success'
+
+    notify_users(
+        claim.team_id,
+        [claim.user_id],
+        f"Bill Approved & Paid • {team_name}",
+        f"₹{claim.amount:.2f} ({claim.category}) settled via {payment_method} • URN: {urn}",
+        url_for('my_transactions')
+    )
     db.session.commit()
+    flash(f"Bill approved & recorded as paid via {payment_method} • URN: {urn}", "success")
     return redirect(url_for('dashboard'))
 
 
@@ -1014,22 +1069,6 @@ def dashboard():
     wallet = get_or_create_wallet(team.id)
     wallet_balance = round(wallet.balance or 0.0, 2)
 
-    pending_qr_txs = WalletTransaction.query.filter_by(
-        team_id=team.id,
-        tx_type='vendor_qr_pay',
-        status='pending'
-    ).order_by(WalletTransaction.created_at.desc()).all()
-
-    approved_unpaid_qr_txs = WalletTransaction.query.filter_by(
-        team_id=team.id,
-        tx_type='vendor_qr_pay',
-        status='approved_unpaid'
-    ).order_by(WalletTransaction.created_at.desc()).all()
-
-    recent_wallet_txs = WalletTransaction.query.filter_by(
-        team_id=team.id
-    ).order_by(WalletTransaction.created_at.desc()).limit(15).all()
-
     category_totals = {cat: 0.0 for cat in EXPENSE_CATEGORIES}
     for e in month_entries:
         if e.tx_type == 'debit':
@@ -1046,6 +1085,12 @@ def dashboard():
     pending_claims = BillClaim.query.filter_by(
         team_id=team.id,
         status='pending'
+    ).order_by(BillClaim.created_at.desc()).all()
+
+    approved_unpaid_claims = BillClaim.query.filter_by(
+        team_id=team.id,
+        status='approved',
+        paid_status='unpaid'
     ).order_by(BillClaim.created_at.desc()).all()
 
     pending_credits = sum(c.amount for c in pending_claims if c.category == "Monthly Deposit")
@@ -1079,6 +1124,7 @@ def dashboard():
             'is_deposit': is_dep,
             'amount': c.amount,
             'remarks': c.remarks,
+            'urn': c.urn or _extract_urn_from_remarks(c.remarks),
             'date': c.created_at.strftime('%d %b %Y, %I:%M %p')
         })
     pending_by_user = sorted(pending_by_user_map.values(), key=lambda x: x['total_amount'], reverse=True)
@@ -1101,13 +1147,11 @@ def dashboard():
         month_credits=month_credits,
         month_expenses=month_expenses,
         wallet_balance=wallet_balance,
-        pending_qr_txs=pending_qr_txs,
-        approved_unpaid_qr_txs=approved_unpaid_qr_txs,
-        recent_wallet_txs=recent_wallet_txs,
         category_totals=category_totals,
         categories=CATEGORIES,
         expense_categories=EXPENSE_CATEGORIES,
         pending_claims=pending_claims,
+        approved_unpaid_claims=approved_unpaid_claims,
         pending_amount=pending_amount,
         pending_credits=pending_credits,
         pending_debits=pending_debits,
@@ -1205,12 +1249,18 @@ def submit_claim():
         flash("Amount must be greater than 0.", "warning")
         return redirect(url_for('dashboard'))
 
+    urn = _build_rich_urn(current_user.name, category, prefix="CLM")
+    formatted_remarks = f"[URN: {urn}] {remarks or category}"
+
     claim = BillClaim(
         team_id=team.id,
         user_id=current_user.id,
         amount=amount,
         category=category,
-        remarks=remarks or category
+        remarks=formatted_remarks,
+        urn=urn,
+        status='pending',
+        paid_status='unpaid'
     )
     db.session.add(claim)
 
@@ -1221,13 +1271,13 @@ def submit_claim():
     notify_users(
         team.id,
         cashier_ids,
-        f"New Bill Claim • {team.name}",
+        f"New Bill Claim ({urn}) • {team.name}",
         f"{current_user.name} submitted ₹{amount:.2f} for {category}.",
         url_for('dashboard')
     )
 
     db.session.commit()
-    flash("Submitted to Cashier for approval.", "info")
+    flash(f"Submitted to Cashier for approval • URN: {urn}", "info")
     return redirect(url_for('dashboard'))
 
 
@@ -1242,6 +1292,12 @@ def process_claim(claim_id, action):
 
     team_name = claim.team.name if getattr(claim, 'team', None) else 'TEAM POOL'
     approval_time = datetime.now()
+    urn = claim.urn or _extract_urn_from_remarks(claim.remarks) or _build_rich_urn(
+        claim.user.name if claim.user else 'USER',
+        claim.category,
+        prefix="CLM"
+    )
+    claim.urn = urn
 
     if action == 'approve':
         claim.status = 'approved'
@@ -1253,7 +1309,7 @@ def process_claim(claim_id, action):
             tx_type=ledger_type,
             amount=claim.amount,
             category=claim.category,
-            remarks=f"Approved ({ledger_type.upper()}) [{claim.user.name}]: {claim.remarks}",
+            remarks=f"[URN: {urn}] Approved ({ledger_type.upper()}) [{claim.user.name}]: {claim.remarks}",
             user_id=claim.user_id,
             created_at=approval_time
         )
@@ -1272,7 +1328,7 @@ def process_claim(claim_id, action):
             tx_type=ledger_type,
             amount=claim.amount,
             category=claim.category,
-            remarks=f"Approved ({ledger_type.upper()}): {claim.remarks}",
+            remarks=f"[URN: {urn}] Approved ({ledger_type.upper()}): {claim.remarks}",
             created_at=approval_time
         )
         db.session.add(personal_entry)
@@ -1281,10 +1337,10 @@ def process_claim(claim_id, action):
             claim.team_id,
             [claim.user_id],
             f"Bill Approved • {team_name}",
-            f"Your ₹{claim.amount:.2f} ({claim.category}) was approved as {ledger_type.upper()}.",
+            f"Your ₹{claim.amount:.2f} ({claim.category}) was approved • URN: {urn}",
             url_for('my_transactions')
         )
-        flash(f"Approved ₹{claim.amount:.2f} as {ledger_type.upper()} for {claim.user.name}.", "success")
+        flash(f"Approved ₹{claim.amount:.2f} • URN: {urn}. Tap 'Pay' to settle with this URN.", "success")
 
     elif action == 'reject':
         claim.status = 'rejected'
