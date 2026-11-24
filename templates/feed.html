@@ -3,29 +3,37 @@
 <!-- Feed Header -->
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2">
   <div class="min-w-0">
-    <h5 class="fw-bold mb-0 text-truncate">{{ active_team.name }} • Team Feed</h5>
+    <h5 class="fw-bold mb-0 text-truncate"><i class="bi bi-collection-play text-primary me-1"></i>Team Feed — {{ active_team.name }}</h5>
     <small class="text-muted">Share updates, photos, and roommate polls</small>
   </div>
-  <a href="{{ url_for('chat') }}" class="btn btn-sm btn-white bg-white border rounded-pill px-3 shadow-sm flex-shrink-0">
-    <i class="bi bi-chat-dots text-primary me-1"></i>Chat
-  </a>
+  <div class="d-flex align-items-center gap-2 flex-shrink-0">
+    <span class="badge bg-light text-dark border rounded-pill">{{ feed_items|length }} posts</span>
+    <a href="{{ url_for('chat') }}" class="btn btn-sm btn-white bg-white border rounded-pill px-3 shadow-sm">
+      <i class="bi bi-chat-dots text-primary me-1"></i>Chat
+    </a>
+  </div>
 </div>
 
 <!-- Create Post / Poll Composer -->
 <div class="card p-3 mb-3">
   <form method="POST" action="{{ url_for('feed') }}" enctype="multipart/form-data">
-    <div class="d-flex align-items-center gap-2 mb-2">
-      {% if current_user.profile_photo_url %}
-        <img src="{{ current_user.profile_photo_url }}" alt="{{ current_user.name }}" class="feed-avatar border">
-      {% else %}
-        <span class="avatar-circle avatar-sm">{{ current_user.name[:1]|upper }}</span>
-      {% endif %}
-      <span class="fw-semibold small text-truncate">{{ current_user.name }}</span>
+    <div class="row g-2 mb-2">
+      <div class="col-12 col-sm-5">
+        <select name="post_type" class="form-select form-select-sm">
+          <option value="Team Update">Team Update</option>
+          <option value="Bill / Receipt">Bill / Receipt</option>
+          <option value="Announcement">Announcement</option>
+          <option value="Poll">Poll</option>
+        </select>
+      </div>
+      <div class="col-12 col-sm-7">
+        <input type="file" name="photo" accept="image/*" class="form-control form-control-sm" onchange="previewComposerPhoto(this)">
+      </div>
     </div>
 
-    <textarea name="content" rows="2" class="form-control form-control-sm mb-2" placeholder="Write an update or poll question..."></textarea>
+    <textarea name="content" rows="2" class="form-control form-control-sm mb-2" placeholder="Share an update, receipt photo, or question with the team..."></textarea>
 
-    <!-- Optional Poll Fields -->
+    <!-- Optional Poll Builder -->
     <div id="pollBuilderWrap" class="border rounded-3 p-2 mb-2 bg-light d-none">
       <div class="small fw-semibold text-muted mb-1">Poll Options</div>
       <input type="text" name="poll_options" class="form-control form-control-sm mb-1" placeholder="Option 1">
@@ -33,19 +41,16 @@
       <input type="text" name="poll_options" class="form-control form-control-sm" placeholder="Option 3 (optional)">
     </div>
 
-    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
-      <div class="d-flex gap-2 align-items-center">
-        <label class="btn btn-sm btn-outline-secondary rounded-pill px-3 mb-0" style="cursor: pointer;">
-          <i class="bi bi-image me-1"></i>Photo
-          <input type="file" name="photo" accept="image/*" class="d-none" onchange="previewComposerPhoto(this)">
-        </label>
-        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="togglePollBuilder()">
-          <i class="bi bi-bar-chart-line me-1"></i>Poll
-        </button>
-      </div>
-      <button type="submit" class="btn btn-sm btn-primary rounded-pill px-4">Post</button>
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+      <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="togglePollBuilder()">
+        <i class="bi bi-bar-chart-line me-1"></i>Add Poll
+      </button>
+      <span id="composerPhotoName" class="small text-muted text-truncate d-none"></span>
     </div>
-    <div id="composerPhotoName" class="small text-muted mt-1 d-none"></div>
+
+    <button type="submit" class="btn btn-primary btn-sm w-100 rounded-pill py-2 fw-semibold">
+      Publish to Team Feed
+    </button>
   </form>
 </div>
 
@@ -54,27 +59,35 @@
   {% set post = item.post %}
   {% set author = post.author %}
   <div class="card p-3 mb-3">
-    <!-- Author Row -->
-    <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-      <div class="d-flex align-items-center gap-2 min-w-0">
+    <!-- Author Header Row -->
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+      <div class="d-flex align-items-center gap-2 min-w-0 flex-grow-1">
         {% if author and author.profile_photo_url %}
           <img src="{{ author.profile_photo_url }}" alt="{{ author.name }}" class="feed-avatar border">
         {% else %}
-          <span class="avatar-circle avatar-sm">{{ author.name[:1]|upper if author else 'U' }}</span>
+          <span class="avatar-circle avatar-sm feed-avatar">{{ author.name[:1]|upper if author else 'U' }}</span>
         {% endif %}
         <div class="min-w-0">
           <div class="fw-bold small text-dark text-truncate">{{ author.name if author else 'Member' }}</div>
-          <div class="text-muted" style="font-size: 0.7rem;">{{ post.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
+          <div class="text-muted" style="font-size: 0.72rem;">{{ post.created_at.strftime('%d %b %Y, %I:%M %p') }}</div>
         </div>
       </div>
 
-      {% if is_super_admin or (author and author.id == current_user.id) %}
-        <form method="POST" action="{{ url_for('delete_feed_post', post_id=post.id) }}" class="m-0 flex-shrink-0" onsubmit="return confirm('Delete this post?');">
-          <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill py-0 px-2" title="Delete post">
-            <i class="bi bi-trash"></i>
-          </button>
-        </form>
-      {% endif %}
+      <div class="d-flex align-items-center gap-1 flex-shrink-0">
+        {% if item.poll_options %}
+          <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2 py-1">Poll</span>
+        {% elif post.post_type %}
+          <span class="badge bg-light text-secondary border rounded-pill px-2 py-1">{{ post.post_type }}</span>
+        {% endif %}
+
+        {% if is_super_admin or (author and author.id == current_user.id) %}
+          <form method="POST" action="{{ url_for('delete_feed_post', post_id=post.id) }}" class="m-0" onsubmit="return confirm('Delete this post?');">
+            <button type="submit" class="btn btn-sm btn-outline-danger rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 30px; height: 30px;" title="Delete post">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        {% endif %}
+      </div>
     </div>
 
     <!-- Post Text -->
@@ -91,19 +104,21 @@
 
     <!-- Poll Options (if post has a poll) -->
     {% if item.poll_options %}
-      <div class="d-grid gap-2 mt-2">
-        {% for opt in item.poll_options %}
-          <form method="POST" action="{{ url_for('vote_poll', option_id=opt.id) }}" class="m-0">
-            <button type="submit"
-                    class="w-100 text-start btn btn-sm {{ 'btn-primary' if opt.user_voted else 'btn-light border' }} rounded-3 p-2 d-flex justify-content-between align-items-center gap-2">
-              <span class="text-truncate">{{ opt.text }}</span>
-              <span class="badge {{ 'bg-white text-primary' if opt.user_voted else 'bg-secondary' }} rounded-pill num-tabular flex-shrink-0">
-                {{ opt.votes_count }} ({{ opt.percent }}%)
-              </span>
-            </button>
-          </form>
-        {% endfor %}
-        <div class="text-muted" style="font-size: 0.7rem;">Total votes: {{ item.total_votes }}</div>
+      <div class="border rounded-4 p-3 bg-light mt-2">
+        <div class="d-grid gap-2">
+          {% for opt in item.poll_options %}
+            <form method="POST" action="{{ url_for('vote_poll', option_id=opt.id) }}" class="m-0">
+              <button type="submit"
+                      class="w-100 text-start btn btn-sm {{ 'btn-primary' if opt.user_voted else 'bg-white border' }} rounded-3 p-2 d-flex justify-content-between align-items-center gap-2">
+                <span class="text-truncate">{{ opt.text }}</span>
+                <span class="badge {{ 'bg-white text-primary' if opt.user_voted else 'bg-secondary' }} rounded-pill num-tabular flex-shrink-0">
+                  {{ opt.votes_count }} ({{ opt.percent }}%)
+                </span>
+              </button>
+            </form>
+          {% endfor %}
+        </div>
+        <div class="text-muted mt-2" style="font-size: 0.72rem;">{{ item.total_votes }} total vote(s)</div>
       </div>
     {% endif %}
   </div>
@@ -125,7 +140,7 @@
     const label = document.getElementById('composerPhotoName');
     if (!label) return;
     if (input.files && input.files[0]) {
-      label.textContent = 'Selected photo: ' + input.files[0].name;
+      label.textContent = 'Selected: ' + input.files[0].name;
       label.classList.remove('d-none');
     } else {
       label.classList.add('d-none');
