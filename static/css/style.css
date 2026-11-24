@@ -59,14 +59,17 @@ body {
   font-size: 1.25rem;
 }
 
+/* Strict 38x38 circular feed avatar so wide images never stretch */
 .feed-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
-  object-position: center top;
-  flex-shrink: 0;
-  display: inline-block;
+  flex: 0 0 38px !important;
+  width: 38px !important;
+  height: 38px !important;
+  max-width: 38px !important;
+  max-height: 38px !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+  object-position: center top !important;
+  display: inline-block !important;
 }
 
 .feed-post-img {
