@@ -2,18 +2,18 @@
 {% block content %}
 <!-- Workspace Header -->
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
-  <div>
+  <div class="min-w-0">
     <div class="d-flex align-items-center gap-2">
-      <h5 class="fw-bold mb-0">{{ active_team.name }}</h5>
+      <h5 class="fw-bold mb-0 text-truncate">{{ active_team.name }}</h5>
       {% if active_team.city %}
         <span class="badge bg-white text-secondary border rounded-pill">{{ active_team.city }}</span>
       {% endif %}
     </div>
-    <small class="text-muted">Manage invite link & members in <a href="{{ url_for('profile') }}" class="text-decoration-none fw-semibold">Workspace</a></small>
+    <small class="text-muted">Manage invite link &amp; roles in <a href="{{ url_for('profile') }}" class="text-decoration-none fw-semibold">Workspace</a></small>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <button type="button" class="btn btn-sm btn-white bg-white border rounded-pill px-3 shadow-sm position-relative" data-bs-toggle="modal" data-bs-target="#notificationsModal">
-      <i class="bi bi-bell-fill text-primary me-1"></i>Notifications
+      <i class="bi bi-bell-fill text-primary me-1"></i>Alerts
       {% if unread_notifications_count > 0 %}
         <span class="badge bg-danger rounded-pill ms-1">{{ unread_notifications_count }}</span>
       {% endif %}
@@ -22,18 +22,25 @@
       <i class="bi bi-chat-dots text-primary me-1"></i>Chat
     </a>
     <a href="{{ url_for('all_transactions') }}" class="btn btn-sm btn-dark rounded-pill px-3 shadow-sm">
-      <i class="bi bi-journal-text me-1"></i>All Transactions
+      <i class="bi bi-journal-text me-1"></i>Ledger
     </a>
   </div>
 </div>
 
-<!-- Executive Treasury Balance Card (Current Month) -->
+<!-- Executive Treasury & Team Wallet Overview -->
 <div class="hero-ledger-card p-4 mb-3">
-  <div class="d-flex justify-content-between align-items-center mb-1">
-    <span class="text-uppercase small fw-semibold" style="color: #94a3b8; letter-spacing: 0.08em;">Available Balance ({{ current_month_label }})</span>
-    <span class="badge rounded-pill" style="background: rgba(56, 189, 248, 0.18); color: #7dd3fc;">Carry-Forward Active</span>
+  <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+    <div>
+      <span class="text-uppercase small fw-semibold" style="color: #94a3b8; letter-spacing: 0.08em;">Available Balance ({{ current_month_label }})</span>
+      <h1 class="fw-bold display-6 my-1 num-tabular">₹{{ "%.2f"|format(available_balance) }}</h1>
+    </div>
+    <div class="text-sm-end bg-white bg-opacity-10 border border-light border-opacity-25 rounded-4 px-3 py-2">
+      <div class="text-uppercase fw-semibold" style="font-size: 0.65rem; color: #bae6fd; letter-spacing: 0.06em;">TEAM WALLET</div>
+      <div class="fw-bold fs-4 text-white num-tabular">₹{{ "%.2f"|format(wallet_balance) }}</div>
+      <div style="font-size: 0.65rem; color: #cbd5e1;">Cashfree PG + QR Approval</div>
+    </div>
   </div>
-  <h1 class="fw-bold display-6 my-1 num-tabular">₹{{ "%.2f"|format(available_balance) }}</h1>
+
   <div class="row g-2 mt-3 pt-3 border-top border-secondary border-opacity-50 small">
     <div class="col-4">
       <div style="color: #94a3b8; font-size: 0.68rem;">MONTH OPENING</div>
@@ -51,7 +58,88 @@
   </div>
 </div>
 
-<!-- Tappable Pending Bills Card (Visible to All) -->
+<!-- Smart Action Bar: Cashfree PG Top-Up (Cashier) + Offline Vendor QR Scan & Pay -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+    <div>
+      <h6 class="fw-bold mb-0"><i class="bi bi-qr-code-scan text-primary me-1"></i>Wallet &amp; Offline Scan &amp; Pay</h6>
+      <small class="text-muted">Scan shop QR for groceries/expenses • Cashier approves &amp; pays with auto-generated URN</small>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="button" class="btn btn-sm btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#scanVendorQrModal">
+        <i class="bi bi-camera me-1"></i>Scan &amp; Pay QR
+      </button>
+      {% if is_cashier %}
+      <button type="button" class="btn btn-sm btn-success rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#cashfreeTopupModal">
+        <i class="bi bi-plus-circle me-1"></i>Add Money (PG)
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Approved QR Payments Ready for UPI App with URN Note -->
+  {% if approved_unpaid_qr_txs %}
+    <div class="mt-2 pt-2 border-top">
+      <div class="text-uppercase small fw-bold text-primary mb-2" style="font-size: 0.68rem; letter-spacing: 0.05em;">
+        Approved QR Payments — Pay via UPI App (URN Attached as Note)
+      </div>
+      {% for q in approved_unpaid_qr_txs %}
+        <div class="border rounded-4 p-3 mb-2 bg-light">
+          <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+            <div class="min-w-0">
+              <div class="fw-bold small num-tabular">{{ q.vendor_name }} • ₹{{ "%.2f"|format(q.amount) }}</div>
+              <div class="small text-muted text-truncate">UPI: {{ q.vendor_vpa }} • By {{ q.user.name }} • {{ q.category }}</div>
+              <div class="mt-1 d-flex align-items-center gap-2 flex-wrap">
+                <span class="badge bg-dark rounded-pill" id="urnBadge-{{ q.id }}">URN: {{ q.urn }}</span>
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary rounded-pill py-0 px-2"
+                        style="font-size: 0.7rem;"
+                        onclick="copyUrnText('urnBadge-{{ q.id }}', this)">
+                  Copy URN
+                </button>
+              </div>
+            </div>
+            <a href="upi://pay?pa={{ q.vendor_vpa|urlencode }}&pn={{ q.vendor_name|urlencode }}&am={{ '%.2f'|format(q.amount) }}&cu=INR&tn={{ q.urn|urlencode }}"
+               class="btn btn-sm btn-primary rounded-pill px-3 flex-shrink-0">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Pay via UPI App
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+<!-- Cashier Pending Vendor QR Payment Requests -->
+{% if is_cashier and pending_qr_txs %}
+<div class="card p-3 mb-3 border-primary border-opacity-50">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="fw-bold mb-0"><i class="bi bi-upc-scan text-primary me-1"></i>Pending Vendor QR Requests</h6>
+    <span class="badge bg-primary rounded-pill">{{ pending_qr_txs|length }}</span>
+  </div>
+  {% for q in pending_qr_txs %}
+    <div class="border rounded-4 p-3 mb-2 bg-light d-flex justify-content-between align-items-start gap-2 flex-wrap">
+      <div class="min-w-0">
+        <div class="fw-bold small num-tabular">{{ q.user.name }} • ₹{{ "%.2f"|format(q.amount) }} → {{ q.vendor_name }}</div>
+        <div class="small text-muted text-truncate">UPI: {{ q.vendor_vpa }} • {{ q.category }}</div>
+        {% if q.remarks %}
+          <div class="small text-secondary mt-1">{{ q.remarks }}</div>
+        {% endif %}
+      </div>
+      <div class="d-flex gap-1 flex-shrink-0">
+        <form method="POST" action="{{ url_for('process_vendor_qr_payment', tx_id=q.id, action='approve') }}" class="m-0">
+          <button type="submit" class="btn btn-sm btn-success rounded-pill px-3">Approve &amp; Gen URN</button>
+        </form>
+        <form method="POST" action="{{ url_for('process_vendor_qr_payment', tx_id=q.id, action='reject') }}" class="m-0">
+          <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-2">Reject</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Tappable Pending Bills Card (Sum Total + Credit/Debit Breakdown) -->
 <div class="card p-3 mb-3 border-warning border-opacity-50" role="button" tabindex="0" data-bs-toggle="modal" data-bs-target="#pendingByPersonModal" style="cursor: pointer;">
   <div class="d-flex justify-content-between align-items-center gap-2">
     <div class="flex-grow-1 min-w-0">
@@ -170,11 +258,11 @@
   </div>
 </div>
 
-<!-- Cashier (Admin) Approvals: Pending Bills & Leave Requests -->
+<!-- Cashier Approvals: Pending Bills & Leave Requests -->
 {% if is_cashier %}
   <div class="card p-3 mb-3 border-warning border-opacity-50">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h6 class="fw-bold mb-0"><i class="bi bi-shield-check text-warning me-1"></i>Pending Approvals</h6>
+      <h6 class="fw-bold mb-0"><i class="bi bi-shield-check text-warning me-1"></i>Pending Bill Approvals</h6>
       <span class="badge bg-warning text-dark rounded-pill num-tabular">{{ pending_claims|length }} • ₹{{ "%.2f"|format(pending_amount) }}</span>
     </div>
 
@@ -182,7 +270,7 @@
       {% set is_dep = (c.category == "Monthly Deposit") %}
       <div class="border rounded-4 p-3 mb-2 bg-light">
         <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
-          <div>
+          <div class="min-w-0">
             <div class="fw-bold small num-tabular">{{ c.user.name }} • ₹{{ "%.2f"|format(c.amount) }}</div>
             <div class="d-flex gap-1 flex-wrap my-1">
               <span class="badge {{ 'bg-success' if is_dep else 'bg-danger' }} rounded-pill">{{ 'CREDIT' if is_dep else 'DEBIT' }}</span>
@@ -191,15 +279,15 @@
             </div>
             <div class="small text-muted">{{ c.remarks }}</div>
           </div>
-          <div class="d-flex gap-1">
-            <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='approve') }}">
+          <div class="d-flex gap-1 flex-shrink-0">
+            <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='approve') }}" class="m-0">
               <button class="btn btn-sm btn-success rounded-pill px-3">Approve</button>
             </form>
-            <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='reject') }}">
+            <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='reject') }}" class="m-0">
               <button class="btn btn-sm btn-outline-danger rounded-pill px-2">Reject</button>
             </form>
             {% if is_super_admin %}
-              <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" onsubmit="return confirm('Delete this bill claim?');">
+              <form method="POST" action="{{ url_for('super_admin_delete_claim', claim_id=c.id) }}" class="m-0" onsubmit="return confirm('Delete this bill claim?');">
                 <button class="btn btn-sm btn-dark rounded-pill px-2" title="Delete"><i class="bi bi-trash"></i></button>
               </form>
             {% endif %}
@@ -224,10 +312,10 @@
           <div class="small text-muted">{{ lr.reason or 'No reason specified' }}</div>
         </div>
         <div class="d-flex gap-1">
-          <form method="POST" action="{{ url_for('process_leave_request', req_id=lr.id, action='approve') }}">
+          <form method="POST" action="{{ url_for('process_leave_request', req_id=lr.id, action='approve') }}" class="m-0">
             <button class="btn btn-sm btn-danger rounded-pill px-3">Approve Exit</button>
           </form>
-          <form method="POST" action="{{ url_for('process_leave_request', req_id=lr.id, action='reject') }}">
+          <form method="POST" action="{{ url_for('process_leave_request', req_id=lr.id, action='reject') }}" class="m-0">
             <button class="btn btn-sm btn-outline-secondary rounded-pill px-2">Reject</button>
           </form>
         </div>
@@ -237,7 +325,7 @@
   {% endif %}
 {% endif %}
 
-<!-- Responsive Category Expense Matrix (Current Month) -->
+<!-- Monthly Expense Matrix -->
 <div class="card p-3 mb-3">
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h6 class="fw-bold mb-0">Monthly Expense Breakdown</h6>
@@ -349,7 +437,7 @@
   {% endfor %}
 </div>
 
-<!-- Super Admin: Global Audit & Deletion Controls -->
+<!-- Super Admin Global Audit -->
 {% if is_super_admin %}
 <div class="card p-3 mb-3 border-dark">
   <h6 class="fw-bold mb-2"><i class="bi bi-shield-lock-fill text-warning me-1"></i>Super Admin: Global Audit Controls</h6>
@@ -378,16 +466,184 @@
   {% endfor %}
 </div>
 {% endif %}
+
+<!-- Scan & Pay Vendor QR Modal -->
+<div class="modal fade" id="scanVendorQrModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-0 rounded-4">
+      <div class="modal-header border-0 pb-1">
+        <div>
+          <h6 class="modal-title fw-bold mb-0"><i class="bi bi-qr-code-scan text-primary me-1"></i>Scan Vendor QR &amp; Request</h6>
+          <small class="text-muted">Point camera at shop UPI QR or enter vendor VPA</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="stopVendorQrScanner()"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <div class="d-flex gap-2 mb-2">
+          <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="startVendorQrScanner()">
+            <i class="bi bi-camera-video me-1"></i>Start Camera
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="stopVendorQrScanner()">
+            Stop Camera
+          </button>
+        </div>
+        <div id="qr-reader" class="mb-3 rounded-3 overflow-hidden" style="width: 100%; max-width: 360px;"></div>
+
+        <form method="POST" action="{{ url_for('request_vendor_qr_payment') }}">
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Vendor UPI ID (VPA)</label>
+            <input type="text" name="vendor_vpa" id="vendorVpaInput" class="form-control form-control-sm" placeholder="shop@upi" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Shop / Vendor Name</label>
+            <input type="text" name="vendor_name" id="vendorNameInput" class="form-control form-control-sm" placeholder="e.g., Fresh Mart Groceries" required>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-5">
+              <label class="form-label small text-muted mb-1">Amount (₹)</label>
+              <input type="number" step="0.01" name="amount" id="vendorAmountInput" class="form-control form-control-sm num-tabular" placeholder="0.00" required>
+            </div>
+            <div class="col-7">
+              <label class="form-label small text-muted mb-1">Category</label>
+              <select name="category" class="form-select form-select-sm" required>
+                {% for cat in expense_categories %}
+                  <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-1">Remarks (optional)</label>
+            <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Groceries / vegetables / items">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm w-100 rounded-pill py-2">Submit for Cashier Approval</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cashfree PG Top-Up Modal (Cashier) -->
+{% if is_cashier %}
+<div class="modal fade" id="cashfreeTopupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 rounded-4">
+      <div class="modal-header border-0 pb-1">
+        <div>
+          <h6 class="modal-title fw-bold mb-0"><i class="bi bi-wallet2 text-success me-1"></i>Add Money via Cashfree PG</h6>
+          <small class="text-muted">Credited to Team Wallet after payment confirmation</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <div class="mb-3">
+          <label class="form-label small text-muted mb-1">Top-Up Amount (₹)</label>
+          <input type="number" step="0.01" min="1" id="cfTopupAmount" class="form-control form-control-sm num-tabular" placeholder="500.00" required>
+        </div>
+        <div class="small text-muted mb-3" id="cfTopupStatus"></div>
+        <button type="button" class="btn btn-success btn-sm w-100 rounded-pill py-2" onclick="launchCashfreePgTopup()">
+          Proceed to Cashfree Checkout
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+<script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
 <script>
   const PENDING_BY_USER = {{ pending_by_user | tojson }};
+  let html5QrInstance = null;
 
   function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text || '';
     return div.innerHTML;
+  }
+
+  function copyUrnText(elementId, btnEl) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const urn = el.textContent.replace(/^URN:\s*/i, '').trim();
+    const done = () => {
+      if (!btnEl) return;
+      const prev = btnEl.textContent;
+      btnEl.textContent = 'Copied';
+      setTimeout(() => { btnEl.textContent = prev; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(urn).then(done).catch(() => {});
+    }
+  }
+
+  function startVendorQrScanner() {
+    if (!window.Html5Qrcode) return;
+    if (!html5QrInstance) {
+      html5QrInstance = new Html5Qrcode("qr-reader");
+    }
+    html5QrInstance.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 220 },
+      (decodedText) => {
+        if (decodedText.toLowerCase().startsWith("upi://pay")) {
+          try {
+            const url = new URL(decodedText);
+            const pa = url.searchParams.get("pa");
+            const pn = url.searchParams.get("pn");
+            const am = url.searchParams.get("am");
+            if (pa) document.getElementById("vendorVpaInput").value = pa;
+            if (pn) document.getElementById("vendorNameInput").value = decodeURIComponent(pn);
+            if (am) document.getElementById("vendorAmountInput").value = am;
+          } catch (e) {}
+        }
+        stopVendorQrScanner();
+      },
+      () => {}
+    ).catch(() => {});
+  }
+
+  function stopVendorQrScanner() {
+    if (html5QrInstance && html5QrInstance.isScanning) {
+      html5QrInstance.stop().catch(() => {});
+    }
+  }
+
+  async function launchCashfreePgTopup() {
+    const amountInput = document.getElementById("cfTopupAmount");
+    const statusEl = document.getElementById("cfTopupStatus");
+    const amount = parseFloat(amountInput ? amountInput.value : "0");
+    if (!amount || amount < 1) {
+      if (statusEl) statusEl.textContent = "Please enter an amount of at least ₹1.00.";
+      return;
+    }
+    if (statusEl) statusEl.textContent = "Creating Cashfree payment order...";
+
+    try {
+      const resp = await fetch("{{ url_for('create_cashfree_topup_order') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: amount })
+      });
+      const data = await resp.json();
+      if (!data.ok || !data.payment_session_id) {
+        if (statusEl) statusEl.textContent = data.error || "Could not start Cashfree checkout.";
+        return;
+      }
+      if (window.Cashfree) {
+        const cashfree = Cashfree({ mode: data.env || "sandbox" });
+        cashfree.checkout({
+          paymentSessionId: data.payment_session_id,
+          redirectTarget: "_modal"
+        });
+      } else {
+        if (statusEl) statusEl.textContent = "Cashfree SDK failed to load.";
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = "Error: " + err.message;
+    }
   }
 
   function openPersonPendingModal(userId) {
