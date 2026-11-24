@@ -132,7 +132,7 @@ def _extract_urn_from_remarks(remarks_text):
 @app.errorhandler(413)
 def file_too_large(e):
     flash("Image file is too large. Please choose a photo under 20 MB.", "warning")
-    return redirect(request.referrer or url_for('feed'))
+    return redirect(request.referrer or url_for('chat'))
 
 
 # ---------------- MODELS ----------------
@@ -248,54 +248,10 @@ class ChatMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    message = db.Column(db.Text, nullable=False)
+    message = db.Column(db.Text, nullable=True)
+    image_path = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
     user = db.relationship('User', backref='messages')
-
-
-class FeedPost(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    tag = db.Column(db.String(40), default='Update')
-    content = db.Column(db.Text, nullable=False)
-    image_path = db.Column(db.String(255), nullable=True)
-    poll_question = db.Column(db.String(255), nullable=True)
-    shares_count = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    author = db.relationship('User', backref='feed_posts')
-    likes = db.relationship('FeedLike', backref='post', cascade='all, delete-orphan')
-    comments = db.relationship('FeedComment', backref='post', cascade='all, delete-orphan', order_by='FeedComment.created_at.asc()')
-    poll_options = db.relationship('PollOption', backref='post', cascade='all, delete-orphan', order_by='PollOption.id.asc()')
-
-
-class PollOption(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    post_id = db.Column(db.Integer, db.ForeignKey('feed_post.id'), nullable=False)
-    option_text = db.Column(db.String(160), nullable=False)
-    votes = db.relationship('PollVote', backref='option', cascade='all, delete-orphan')
-
-
-class PollVote(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    post_id = db.Column(db.Integer, db.ForeignKey('feed_post.id'), nullable=False)
-    option_id = db.Column(db.Integer, db.ForeignKey('poll_option.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-
-
-class FeedLike(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    post_id = db.Column(db.Integer, db.ForeignKey('feed_post.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-
-
-class FeedComment(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    post_id = db.Column(db.Integer, db.ForeignKey('feed_post.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    comment = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    author = db.relationship('User', backref='feed_comments')
 
 
 class Notification(db.Model):
@@ -386,8 +342,7 @@ def ensure_schema_and_default_team():
             ('paid_status', "VARCHAR(20) DEFAULT 'unpaid'"),
         ],
         'personal_transaction': [('team_id', 'INTEGER')],
-        'chat_message': [('team_id', 'INTEGER')],
-        'feed_post': [('image_path', 'VARCHAR(255)'), ('poll_question', 'VARCHAR(255)')],
+        'chat_message': [('team_id', 'INTEGER'), ('image_path', 'VARCHAR(255)')],
         'wallet_transaction': [('urn', 'VARCHAR(64)')],
     }
     for tbl, cols in table_columns.items():
@@ -1588,165 +1543,6 @@ def all_transactions():
     )
 
 
-@app.route('/feed', methods=['GET', 'POST'])
-@login_required
-def feed():
-    team, _ = get_active_team_context()
-    if not team:
-        return redirect(url_for('profile'))
-
-    if request.method == 'POST':
-        content = request.form.get('content', '').strip()
-        tag = request.form.get('tag', 'Update').strip() or 'Update'
-        poll_question = request.form.get('poll_question', '').strip()
-        raw_options = [
-            request.form.get('poll_opt_1', '').strip(),
-            request.form.get('poll_opt_2', '').strip(),
-            request.form.get('poll_opt_3', '').strip(),
-            request.form.get('poll_opt_4', '').strip(),
-        ]
-        valid_options = [opt for opt in raw_options if opt]
-
-        photo_file = request.files.get('photo')
-        image_rel_path = _save_uploaded_image(photo_file) if photo_file and photo_file.filename else None
-
-        if photo_file and photo_file.filename and not image_rel_path:
-            flash("Unsupported image format. Use PNG, JPG, JPEG, GIF, or WEBP.", "warning")
-            return redirect(url_for('feed'))
-
-        if poll_question and len(valid_options) < 2:
-            flash("Please provide at least 2 options for a poll.", "warning")
-            return redirect(url_for('feed'))
-
-        if content or image_rel_path or (poll_question and len(valid_options) >= 2):
-            post = FeedPost(
-                team_id=team.id,
-                user_id=current_user.id,
-                tag="Poll" if poll_question else tag,
-                content=content or "",
-                image_path=image_rel_path,
-                poll_question=poll_question or None
-            )
-            db.session.add(post)
-            db.session.flush()
-
-            if poll_question and len(valid_options) >= 2:
-                for opt_text in valid_options:
-                    db.session.add(PollOption(post_id=post.id, option_text=opt_text))
-
-            other_members = [m.user_id for m in TeamMembership.query.filter_by(team_id=team.id).all() if m.user_id != current_user.id]
-            preview_text = poll_question or (content[:80] if content else "Shared a photo")
-            notify_users(
-                team.id,
-                other_members,
-                f"New Feed Post • {team.name}",
-                f"{current_user.name}: {preview_text}",
-                url_for('feed') + f"#post-{post.id}"
-            )
-
-            db.session.commit()
-            flash("Published to team feed!", "success")
-        return redirect(url_for('feed'))
-
-    posts = FeedPost.query.filter_by(team_id=team.id).order_by(FeedPost.created_at.desc()).all()
-    liked_post_ids = {lk.post_id for lk in FeedLike.query.filter_by(user_id=current_user.id).all()}
-    user_votes = {v.post_id: v.option_id for v in PollVote.query.filter_by(user_id=current_user.id).all()}
-    return render_template('feed.html', posts=posts, liked_post_ids=liked_post_ids, user_votes=user_votes)
-
-
-@app.route('/feed/<int:post_id>/vote', methods=['POST'])
-@login_required
-def vote_poll(post_id):
-    team, _ = get_active_team_context()
-    post = FeedPost.query.filter_by(id=post_id, team_id=team.id).first_or_404()
-    option_id = int(request.form['option_id'])
-    option = PollOption.query.filter_by(id=option_id, post_id=post.id).first_or_404()
-
-    existing_vote = PollVote.query.filter_by(post_id=post.id, user_id=current_user.id).first()
-    if existing_vote:
-        existing_vote.option_id = option.id
-    else:
-        db.session.add(PollVote(post_id=post.id, option_id=option.id, user_id=current_user.id))
-    db.session.commit()
-    return redirect(url_for('feed') + f"#post-{post.id}")
-
-
-@app.route('/feed/<int:post_id>/like', methods=['POST'])
-@login_required
-def toggle_like(post_id):
-    team, _ = get_active_team_context()
-    post = FeedPost.query.filter_by(id=post_id, team_id=team.id).first_or_404()
-    existing = FeedLike.query.filter_by(post_id=post.id, user_id=current_user.id).first()
-    if existing:
-        db.session.delete(existing)
-    else:
-        db.session.add(FeedLike(post_id=post.id, user_id=current_user.id))
-    db.session.commit()
-    return redirect(url_for('feed') + f"#post-{post.id}")
-
-
-@app.route('/feed/<int:post_id>/comment', methods=['POST'])
-@login_required
-def add_comment(post_id):
-    team, _ = get_active_team_context()
-    post = FeedPost.query.filter_by(id=post_id, team_id=team.id).first_or_404()
-    comment_text = request.form.get('comment', '').strip()
-    if comment_text:
-        db.session.add(FeedComment(
-            post_id=post.id,
-            user_id=current_user.id,
-            comment=comment_text
-        ))
-        if post.user_id != current_user.id:
-            notify_users(
-                team.id,
-                [post.user_id],
-                f"New Comment • {team.name}",
-                f"{current_user.name} commented on your post: {comment_text[:80]}",
-                url_for('feed') + f"#post-{post.id}"
-            )
-        db.session.commit()
-    return redirect(url_for('feed') + f"#post-{post.id}")
-
-
-@app.route('/feed/<int:post_id>/share', methods=['POST'])
-@login_required
-def track_share(post_id):
-    team, _ = get_active_team_context()
-    post = FeedPost.query.filter_by(id=post_id, team_id=team.id).first_or_404()
-    post.shares_count = (post.shares_count or 0) + 1
-    db.session.commit()
-    return jsonify({'shares': post.shares_count})
-
-
-@app.route('/feed/<int:post_id>/delete', methods=['POST'])
-@login_required
-def delete_feed_post(post_id):
-    team, membership = get_active_team_context()
-    post = FeedPost.query.filter_by(id=post_id, team_id=team.id).first_or_404()
-
-    is_owner = (post.user_id == current_user.id)
-    is_team_cashier = (membership and membership.role == 'cashier')
-    is_super = bool(getattr(current_user, 'is_super_admin', False))
-
-    if not (is_owner or is_team_cashier or is_super):
-        flash("You do not have permission to delete this post.", "danger")
-        return redirect(url_for('feed'))
-
-    if post.image_path:
-        full_img_path = os.path.join(BASE_DIR, 'static', post.image_path)
-        if os.path.exists(full_img_path):
-            try:
-                os.remove(full_img_path)
-            except OSError:
-                pass
-
-    db.session.delete(post)
-    db.session.commit()
-    flash("Post deleted from feed.", "info")
-    return redirect(url_for('feed'))
-
-
 @app.route('/chat', methods=['GET', 'POST'])
 @login_required
 def chat():
@@ -1755,9 +1551,32 @@ def chat():
         return redirect(url_for('profile'))
 
     if request.method == 'POST':
-        msg_text = request.form.get('message', '').strip()
-        if msg_text:
-            db.session.add(ChatMessage(team_id=team.id, user_id=current_user.id, message=msg_text))
+        msg_text = (request.form.get('message') or '').strip()
+        img_file = request.files.get('image')
+        saved_img_path = None
+
+        if img_file and img_file.filename:
+            saved_img_path = _save_uploaded_image(img_file)
+            if not saved_img_path:
+                flash("Unsupported image format. Use PNG, JPG, JPEG, GIF, or WEBP.", "warning")
+                return redirect(url_for('chat'))
+
+        if msg_text or saved_img_path:
+            db.session.add(ChatMessage(
+                team_id=team.id,
+                user_id=current_user.id,
+                message=msg_text or None,
+                image_path=saved_img_path
+            ))
+            other_members = [m.user_id for m in TeamMembership.query.filter_by(team_id=team.id).all() if m.user_id != current_user.id]
+            preview_text = msg_text[:80] if msg_text else "Sent a photo"
+            notify_users(
+                team.id,
+                other_members,
+                f"Team Chat • {team.name}",
+                f"{current_user.name}: {preview_text}",
+                url_for('chat')
+            )
             db.session.commit()
         return redirect(url_for('chat'))
 
