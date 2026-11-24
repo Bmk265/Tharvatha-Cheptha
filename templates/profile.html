@@ -2,14 +2,14 @@
 {% block content %}
 <!-- Profile Header Card -->
 <div class="card p-3 mb-3" style="overflow: hidden;">
-  <div class="d-flex align-items-center gap-3" style="min-width: 0;">
+  <div class="d-flex align-items-center gap-3 min-w-0">
     {% if current_user.avatar_path %}
       <img src="{{ url_for('static', filename=current_user.avatar_path) }}" alt="{{ current_user.name }}" class="avatar-circle avatar-lg flex-shrink-0 border">
     {% else %}
       <span class="avatar-circle avatar-lg flex-shrink-0">{{ current_user.name[:1]|upper }}</span>
     {% endif %}
 
-    <div class="flex-grow-1" style="min-width: 0;">
+    <div class="flex-grow-1 min-w-0">
       <h5 class="fw-bold mb-0 text-truncate">{{ current_user.name }}</h5>
       <div class="small text-muted text-truncate mb-2">{{ current_user.email }}</div>
       <div class="d-flex gap-1 flex-wrap">
@@ -23,16 +23,16 @@
     </div>
   </div>
 
-  <!-- Virtual Records Notice -->
-  <div class="alert alert-info py-2 px-3 small rounded-3 border-0 mt-3 mb-0">
-    <strong>Virtual Records Only:</strong> All balances, deposits, and bills in TeamPool are record-keeping figures and cannot be withdrawn or transferred as real money.
+  <!-- Settlement & URN Trace Banner -->
+  <div class="alert alert-light border py-2 px-3 small rounded-3 mt-3 mb-0">
+    <strong>Treasury &amp; UPI Traceability:</strong> Collections use Cashfree PG, while offline vendor QR payments generate a unique <strong>URN</strong> passed as the UPI transaction note for audit tracing.
   </div>
 </div>
 
 <!-- Teams & Invite Links Card -->
 <div class="card p-3 mb-3" style="overflow: hidden;">
   <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
-    <div style="min-width: 0;">
+    <div class="min-w-0">
       <h6 class="fw-bold mb-1"><i class="bi bi-people text-primary me-1"></i>Teams &amp; Invite Links</h6>
       <div class="small text-muted">New members join only by opening a team's invite link.</div>
     </div>
@@ -50,7 +50,7 @@
       {% set invite_url = url_for('join_via_invite_link', code=m.team.invite_code, _external=True) %}
       <div class="border rounded-4 p-3 mb-2 bg-light">
         <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
-          <div class="d-flex align-items-center gap-2 flex-wrap" style="min-width: 0;">
+          <div class="d-flex align-items-center gap-2 flex-wrap min-w-0">
             <span class="fw-bold small text-truncate">{{ m.team.name }}</span>
             <span class="badge {{ 'bg-success' if m.role == 'cashier' else 'bg-secondary' }} rounded-pill">{{ m.role }}</span>
             {% if active_team and active_team.id == m.team.id %}
@@ -104,13 +104,13 @@
   {% for tm in team_memberships %}
     {% if tm.user %}
       <div class="d-flex justify-content-between align-items-center py-2 border-bottom gap-2 flex-wrap">
-        <div class="d-flex align-items-center gap-2" style="min-width: 0;">
+        <div class="d-flex align-items-center gap-2 min-w-0">
           {% if tm.user.avatar_path %}
             <img src="{{ url_for('static', filename=tm.user.avatar_path) }}" alt="{{ tm.user.name }}" class="avatar-circle avatar-sm flex-shrink-0">
           {% else %}
             <span class="avatar-circle avatar-sm flex-shrink-0">{{ tm.user.name[:1]|upper }}</span>
           {% endif %}
-          <div style="min-width: 0;">
+          <div class="min-w-0">
             <div class="fw-semibold small text-truncate">
               {{ tm.user.name }}
               <span class="badge {{ 'bg-success' if tm.role == 'cashier' else 'bg-secondary' }} rounded-pill ms-1" style="font-size: 0.62rem;">{{ tm.role|upper }}</span>
@@ -200,7 +200,7 @@
           </div>
           <div class="mb-2">
             <label class="form-label small text-muted mb-1">City / Location (optional)</label>
-            <input type="text" name="team_city" class="form-control form-control-sm" placeholder="e.g., Visakhapatnam">
+            <input type="text" name="team_city" class="form-control form-control-sm" placeholder="e.g., Hyderabad">
           </div>
         </div>
         <div class="modal-footer border-0 pt-0">
