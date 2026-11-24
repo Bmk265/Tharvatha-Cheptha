@@ -1,12 +1,23 @@
 import os
 import json
 import uuid
+import hmac
+import hashlib
+import base64
 from datetime import datetime
 from functools import wraps
 from urllib.parse import urlparse, urljoin
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify
+
+import requests
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    flash, send_from_directory, jsonify
+)
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_login import (
+    LoginManager, UserMixin, login_user, login_required,
+    logout_user, current_user
+)
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy import text, inspect
@@ -29,6 +40,12 @@ app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB max upload
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '').strip()
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '').strip()
 VAPID_CLAIMS_EMAIL = os.environ.get('VAPID_CLAIMS_EMAIL', 'mailto:admin@teampool.app').strip()
+
+# Cashfree Payment Gateway (PG) only — Payouts intentionally omitted
+CASHFREE_ENV = os.environ.get('CASHFREE_ENV', 'SANDBOX').strip().upper()
+CF_PG_BASE = "https://sandbox.cashfree.com/pg" if CASHFREE_ENV == "SANDBOX" else "https://api.cashfree.com/pg"
+CF_PG_ID = os.environ.get('CASHFREE_PG_APP_ID', '').strip()
+CF_PG_SECRET = os.environ.get('CASHFREE_PG_SECRET_KEY', '').strip()
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
@@ -178,6 +195,30 @@ class PersonalTransaction(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
 
 
+class WalletAccount(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('team.id'), unique=True, nullable=False)
+    balance = db.Column(db.Float, default=0.0)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class WalletTransaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    tx_type = db.Column(db.String(20), nullable=False)  # 'topup' or 'vendor_qr_pay'
+    amount = db.Column(db.Float, nullable=False)
+    vendor_vpa = db.Column(db.String(120), nullable=True)
+    vendor_name = db.Column(db.String(120), nullable=True)
+    category = db.Column(db.String(100), nullable=False)
+    remarks = db.Column(db.String(255), nullable=True)
+    gateway_ref_id = db.Column(db.String(120), unique=True, nullable=True)
+    urn = db.Column(db.String(64), unique=True, nullable=True)  # Unique Reference Number for UPI trace
+    status = db.Column(db.String(25), default='pending')  # 'pending', 'approved_unpaid', 'success', 'rejected'
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    user = db.relationship('User', backref='wallet_transactions')
+
+
 class ChatMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     team_id = db.Column(db.Integer, db.ForeignKey('team.id'), nullable=True)
@@ -251,6 +292,24 @@ class PushSubscription(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)
 
 
+def get_or_create_wallet(team_id):
+    wallet = WalletAccount.query.filter_by(team_id=team_id).first()
+    if not wallet:
+        wallet = WalletAccount(team_id=team_id, balance=0.0)
+        db.session.add(wallet)
+        db.session.flush()
+    return wallet
+
+
+def _generate_unique_urn(team_id, tx_id):
+    date_part = datetime.now().strftime('%Y%m%d')
+    rand_part = uuid.uuid4().hex[:6].upper()
+    urn = f"TP{team_id}T{tx_id}-{date_part}-{rand_part}"
+    while WalletTransaction.query.filter_by(urn=urn).first():
+        urn = f"TP{team_id}T{tx_id}-{date_part}-{uuid.uuid4().hex[:6].upper()}"
+    return urn
+
+
 def notify_users(team_id, recipient_user_ids, title, body, link_url='/'):
     unique_ids = set(recipient_user_ids)
     if not unique_ids:
@@ -305,6 +364,7 @@ def ensure_schema_and_default_team():
         'personal_transaction': [('team_id', 'INTEGER')],
         'chat_message': [('team_id', 'INTEGER')],
         'feed_post': [('image_path', 'VARCHAR(255)'), ('poll_question', 'VARCHAR(255)')],
+        'wallet_transaction': [('urn', 'VARCHAR(64)')],
     }
     for tbl, cols in table_columns.items():
         if tbl in inspector.get_table_names():
@@ -358,7 +418,8 @@ def inject_globals():
             'recent_notifications': recent_notifications,
             'unread_notifications_count': unread_notifications_count,
             'vapid_public_key': VAPID_PUBLIC_KEY,
-            'has_push_sub': has_push_sub
+            'has_push_sub': has_push_sub,
+            'cashfree_pg_enabled': bool(CF_PG_ID and CF_PG_SECRET),
         }
     return {
         'active_team': None,
@@ -371,7 +432,8 @@ def inject_globals():
         'recent_notifications': [],
         'unread_notifications_count': 0,
         'vapid_public_key': VAPID_PUBLIC_KEY,
-        'has_push_sub': False
+        'has_push_sub': False,
+        'cashfree_pg_enabled': False,
     }
 
 
@@ -574,6 +636,7 @@ def create_team():
         role='cashier',
         personal_balance=0.0
     ))
+    get_or_create_wallet(team.id)
     current_user.active_team_id = team.id
     current_user.role = 'cashier'
     db.session.commit()
@@ -699,6 +762,228 @@ def process_leave_request(req_id, action):
     return redirect(url_for('dashboard'))
 
 
+# ---------------- CASHFREE PG TOP-UP & OFFLINE VENDOR QR URN FLOW ----------------
+@app.route('/wallet/pg/create-order', methods=['POST'])
+@login_required
+@team_and_cashier_required
+def create_cashfree_topup_order():
+    team, _ = get_active_team_context()
+    data = request.get_json(silent=True) or request.form
+    try:
+        amount = round(float(data.get('amount') or 0), 2)
+    except (TypeError, ValueError):
+        amount = 0.0
+
+    if amount < 1:
+        return jsonify({'ok': False, 'error': 'Minimum top-up amount is ₹1.00'}), 400
+
+    if not CF_PG_ID or not CF_PG_SECRET:
+        return jsonify({'ok': False, 'error': 'Cashfree PG credentials are not configured yet.'}), 400
+
+    order_id = f"TP_{team.id}_{uuid.uuid4().hex[:12].upper()}"
+    db.session.add(WalletTransaction(
+        team_id=team.id,
+        user_id=current_user.id,
+        tx_type='topup',
+        amount=amount,
+        category='Wallet Top-Up',
+        remarks='Cashfree PG Collection',
+        gateway_ref_id=order_id,
+        status='pending'
+    ))
+    db.session.commit()
+
+    payload = {
+        "order_id": order_id,
+        "order_amount": amount,
+        "order_currency": "INR",
+        "customer_details": {
+            "customer_id": f"user_{current_user.id}",
+            "customer_name": current_user.name,
+            "customer_email": current_user.email,
+            "customer_phone": "9999999999"
+        },
+        "order_meta": {
+            "return_url": url_for('dashboard', _external=True) + f"?order_id={order_id}",
+            "notify_url": url_for('cashfree_pg_webhook', _external=True)
+        }
+    }
+    headers = {
+        "x-api-version": "2023-08-01",
+        "x-client-id": CF_PG_ID,
+        "x-client-secret": CF_PG_SECRET,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        resp = requests.post(f"{CF_PG_BASE}/orders", json=payload, headers=headers, timeout=15)
+        res_json = resp.json()
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': f'Gateway request failed: {exc}'}), 502
+
+    if resp.status_code >= 400 or not res_json.get('payment_session_id'):
+        return jsonify({'ok': False, 'error': res_json.get('message', 'Cashfree order creation failed')}), 400
+
+    return jsonify({
+        'ok': True,
+        'order_id': order_id,
+        'payment_session_id': res_json['payment_session_id'],
+        'env': 'sandbox' if CASHFREE_ENV == 'SANDBOX' else 'production'
+    })
+
+
+@app.route('/webhooks/cashfree/pg', methods=['POST'])
+def cashfree_pg_webhook():
+    raw_body = request.data.decode('utf-8')
+    timestamp = request.headers.get('x-webhook-timestamp', '')
+    signature = request.headers.get('x-webhook-signature', '')
+
+    if CF_PG_SECRET:
+        expected_sig = base64.b64encode(
+            hmac.new(CF_PG_SECRET.encode('utf-8'), (timestamp + raw_body).encode('utf-8'), hashlib.sha256).digest()
+        ).decode('utf-8')
+        if not hmac.compare_digest(expected_sig, signature):
+            return jsonify({'error': 'Invalid signature'}), 401
+
+    event = json.loads(raw_body or '{}')
+    if event.get('type') == 'PAYMENT_SUCCESS_WEBHOOK':
+        order_data = event.get('data', {}).get('order', {})
+        payment_data = event.get('data', {}).get('payment', {})
+        order_id = order_data.get('order_id')
+
+        tx = WalletTransaction.query.filter_by(gateway_ref_id=order_id, tx_type='topup').first()
+        if tx and tx.status != 'success':
+            tx.status = 'success'
+            tx.urn = payment_data.get('bank_reference') or str(payment_data.get('cf_payment_id', ''))
+            wallet = get_or_create_wallet(tx.team_id)
+            wallet.balance = round((wallet.balance or 0.0) + tx.amount, 2)
+            db.session.add(PoolLedger(
+                team_id=tx.team_id,
+                tx_type='credit',
+                amount=tx.amount,
+                category='Monthly Deposit',
+                remarks=f"Cashfree PG Top-Up • Order: {order_id}",
+                user_id=tx.user_id
+            ))
+            db.session.commit()
+
+    return jsonify({'status': 'ok'}), 200
+
+
+@app.route('/wallet/scan-pay/request', methods=['POST'])
+@login_required
+def request_vendor_qr_payment():
+    team, _ = get_active_team_context()
+    if not team:
+        flash("Join or create a team workspace first.", "warning")
+        return redirect(url_for('profile'))
+
+    vendor_vpa = (request.form.get('vendor_vpa') or '').strip()
+    vendor_name = (request.form.get('vendor_name') or 'Shop Vendor').strip()
+    category, remarks = _format_category_and_remarks(
+        request.form.get('category') or 'Vegetables',
+        request.form.get('custom_category', ''),
+        request.form.get('remarks', '')
+    )
+    try:
+        amount = round(float(request.form.get('amount') or 0), 2)
+    except (TypeError, ValueError):
+        amount = 0.0
+
+    if '@' not in vendor_vpa or amount <= 0:
+        flash("Please scan a valid vendor UPI QR code and enter a valid amount.", "warning")
+        return redirect(url_for('dashboard'))
+
+    wallet = get_or_create_wallet(team.id)
+    if amount > (wallet.balance or 0.0):
+        flash(f"Insufficient wallet balance (Available: ₹{wallet.balance:.2f}).", "danger")
+        return redirect(url_for('dashboard'))
+
+    db.session.add(WalletTransaction(
+        team_id=team.id,
+        user_id=current_user.id,
+        tx_type='vendor_qr_pay',
+        amount=amount,
+        vendor_vpa=vendor_vpa,
+        vendor_name=vendor_name,
+        category=category,
+        remarks=remarks or category,
+        status='pending'
+    ))
+
+    cashier_ids = [
+        m.user_id for m in TeamMembership.query.filter_by(team_id=team.id, role='cashier').all()
+        if m.user_id != current_user.id
+    ]
+    notify_users(
+        team.id,
+        cashier_ids,
+        f"Vendor QR Pay Request • {team.name}",
+        f"{current_user.name} requested ₹{amount:.2f} for {vendor_name} ({vendor_vpa}).",
+        url_for('dashboard')
+    )
+    db.session.commit()
+    flash("Vendor QR payment submitted for Cashier approval.", "info")
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/wallet/scan-pay/<int:tx_id>/<action>', methods=['POST'])
+@login_required
+@team_and_cashier_required
+def process_vendor_qr_payment(tx_id, action):
+    team, _ = get_active_team_context()
+    tx = WalletTransaction.query.filter_by(id=tx_id, team_id=team.id, tx_type='vendor_qr_pay').first_or_404()
+
+    if tx.status != 'pending':
+        flash("Request already processed.", "warning")
+        return redirect(url_for('dashboard'))
+
+    wallet = get_or_create_wallet(team.id)
+
+    if action == 'approve':
+        if tx.amount > (wallet.balance or 0.0):
+            flash(f"Insufficient wallet balance (₹{wallet.balance:.2f}).", "danger")
+            return redirect(url_for('dashboard'))
+
+        urn = _generate_unique_urn(team.id, tx.id)
+        wallet.balance = round((wallet.balance or 0.0) - tx.amount, 2)
+        tx.urn = urn
+        tx.status = 'approved_unpaid'
+
+        note_suffix = f" — {tx.remarks}" if tx.remarks else ""
+        db.session.add(PoolLedger(
+            team_id=team.id,
+            tx_type='debit',
+            amount=tx.amount,
+            category=tx.category,
+            remarks=f"[URN: {urn}] QR Pay to {tx.vendor_name} ({tx.vendor_vpa}){note_suffix}",
+            user_id=tx.user_id
+        ))
+
+        notify_users(
+            team.id,
+            [tx.user_id],
+            f"QR Payment Approved • {team.name}",
+            f"Approved ₹{tx.amount:.2f} to {tx.vendor_name} • URN: {urn}",
+            url_for('dashboard')
+        )
+        flash(f"Approved ₹{tx.amount:.2f} • URN: {urn}. Use 'Pay via UPI App' to send with URN as note.", "success")
+
+    elif action == 'reject':
+        tx.status = 'rejected'
+        notify_users(
+            team.id,
+            [tx.user_id],
+            f"QR Payment Rejected • {team.name}",
+            f"Your ₹{tx.amount:.2f} request for {tx.vendor_name} was rejected.",
+            url_for('dashboard')
+        )
+        flash("Vendor QR payment request rejected.", "secondary")
+
+    db.session.commit()
+    return redirect(url_for('dashboard'))
+
+
 # ---------------- MAIN TABS ----------------
 @app.route('/')
 @login_required
@@ -725,6 +1010,25 @@ def dashboard():
 
     month_opening = carry_forward_opening + explicit_month_opening
     available_balance = month_opening + month_credits - month_expenses
+
+    wallet = get_or_create_wallet(team.id)
+    wallet_balance = round(wallet.balance or 0.0, 2)
+
+    pending_qr_txs = WalletTransaction.query.filter_by(
+        team_id=team.id,
+        tx_type='vendor_qr_pay',
+        status='pending'
+    ).order_by(WalletTransaction.created_at.desc()).all()
+
+    approved_unpaid_qr_txs = WalletTransaction.query.filter_by(
+        team_id=team.id,
+        tx_type='vendor_qr_pay',
+        status='approved_unpaid'
+    ).order_by(WalletTransaction.created_at.desc()).all()
+
+    recent_wallet_txs = WalletTransaction.query.filter_by(
+        team_id=team.id
+    ).order_by(WalletTransaction.created_at.desc()).limit(15).all()
 
     category_totals = {cat: 0.0 for cat in EXPENSE_CATEGORIES}
     for e in month_entries:
@@ -796,6 +1100,10 @@ def dashboard():
         month_opening=month_opening,
         month_credits=month_credits,
         month_expenses=month_expenses,
+        wallet_balance=wallet_balance,
+        pending_qr_txs=pending_qr_txs,
+        approved_unpaid_qr_txs=approved_unpaid_qr_txs,
+        recent_wallet_txs=recent_wallet_txs,
         category_totals=category_totals,
         categories=CATEGORIES,
         expense_categories=EXPENSE_CATEGORIES,
@@ -1087,12 +1395,15 @@ def all_transactions():
     person_filter = request.args.get('person', '')
     month_filter = request.args.get('month', '')
     category_filter = request.args.get('category', '')
+    urn_filter = (request.args.get('urn') or '').strip()
 
     query = PoolLedger.query.filter_by(team_id=team.id)
     if person_filter:
         query = query.filter(PoolLedger.user_id == int(person_filter))
     if category_filter:
         query = query.filter(PoolLedger.category == category_filter)
+    if urn_filter:
+        query = query.filter(PoolLedger.remarks.ilike(f"%{urn_filter}%"))
 
     entries = query.order_by(PoolLedger.created_at.desc()).all()
     if month_filter:
@@ -1112,6 +1423,7 @@ def all_transactions():
         person_filter=person_filter,
         month_filter=month_filter,
         category_filter=category_filter,
+        urn_filter=urn_filter,
         total_inflow=total_inflow,
         total_outflow=total_outflow
     )
