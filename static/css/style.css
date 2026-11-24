@@ -1,0 +1,115 @@
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-bottom: 96px;
+  -webkit-text-size-adjust: 100%;
+}
+
+.container,
+.card,
+.modal-content {
+  max-width: 100%;
+}
+
+.num-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* High-contrast hero balance card */
+.hero-ledger-card {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+  color: #ffffff !important;
+  border-radius: 1.25rem;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+}
+
+.hero-ledger-card .wallet-pill-box {
+  background-color: rgba(15, 23, 42, 0.72) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+}
+
+/* Avatars */
+.avatar-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: #0f172a;
+  color: #ffffff;
+  font-weight: 700;
+  object-fit: cover;
+}
+
+.avatar-sm {
+  width: 34px;
+  height: 34px;
+  font-size: 0.85rem;
+}
+
+.avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: 1.25rem;
+}
+
+/* Bottom navigation bar — fits all 5 items cleanly on narrow screens */
+.bottom-nav {
+  z-index: 1030;
+  left: 0;
+  right: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.bottom-nav .bottom-nav-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0.35rem 0.5rem;
+}
+
+.bottom-nav .nav-link {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.15rem 0.1rem;
+  white-space: nowrap;
+}
+
+.bottom-nav .nav-link span {
+  display: block;
+  font-size: 0.65rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottom-nav .plus-btn-wrap {
+  flex: 0 0 auto;
+  padding: 0 0.25rem;
+}
+
+/* Mobile screen adjustments */
+@media (max-width: 576px) {
+  .hero-ledger-card {
+    padding: 1.1rem !important;
+  }
+
+  .hero-ledger-card h1.display-6 {
+    font-size: 1.65rem;
+  }
+
+  .card {
+    border-radius: 1rem;
+  }
+
+  .btn-sm {
+    font-size: 0.75rem;
+  }
+
+  .modal-dialog {
+    margin: 0.65rem;
+  }
+}
