@@ -37,7 +37,7 @@
     <div class="text-sm-end bg-white bg-opacity-10 border border-light border-opacity-25 rounded-4 px-3 py-2">
       <div class="text-uppercase fw-semibold" style="font-size: 0.65rem; color: #bae6fd; letter-spacing: 0.06em;">TEAM WALLET</div>
       <div class="fw-bold fs-4 text-white num-tabular">₹{{ "%.2f"|format(wallet_balance) }}</div>
-      <div style="font-size: 0.65rem; color: #cbd5e1;">Cashfree PG + QR Approval</div>
+      <div style="font-size: 0.65rem; color: #cbd5e1;">Cashfree PG + URN Trace</div>
     </div>
   </div>
 
@@ -58,12 +58,12 @@
   </div>
 </div>
 
-<!-- Smart Action Bar: Cashfree PG Top-Up (Cashier) + Offline Vendor QR Scan & Pay -->
+<!-- Smart Action Bar: Scan & Pay QR (Auto-Submits Bill + URN) & Cashfree PG Top-Up -->
 <div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+  <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
     <div>
-      <h6 class="fw-bold mb-0"><i class="bi bi-qr-code-scan text-primary me-1"></i>Wallet &amp; Offline Scan &amp; Pay</h6>
-      <small class="text-muted">Scan shop QR for groceries/expenses • Cashier approves &amp; pays with auto-generated URN</small>
+      <h6 class="fw-bold mb-0"><i class="bi bi-qr-code-scan text-primary me-1"></i>Scan &amp; Pay Shop QR</h6>
+      <small class="text-muted">Enter material &amp; amount • Pay via phone app with auto-URN • Auto-submits bill</small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <button type="button" class="btn btn-sm btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#scanVendorQrModal">
@@ -76,68 +76,7 @@
       {% endif %}
     </div>
   </div>
-
-  <!-- Approved QR Payments Ready for UPI App with URN Note -->
-  {% if approved_unpaid_qr_txs %}
-    <div class="mt-2 pt-2 border-top">
-      <div class="text-uppercase small fw-bold text-primary mb-2" style="font-size: 0.68rem; letter-spacing: 0.05em;">
-        Approved QR Payments — Pay via UPI App (URN Attached as Note)
-      </div>
-      {% for q in approved_unpaid_qr_txs %}
-        <div class="border rounded-4 p-3 mb-2 bg-light">
-          <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
-            <div class="min-w-0">
-              <div class="fw-bold small num-tabular">{{ q.vendor_name }} • ₹{{ "%.2f"|format(q.amount) }}</div>
-              <div class="small text-muted text-truncate">UPI: {{ q.vendor_vpa }} • By {{ q.user.name }} • {{ q.category }}</div>
-              <div class="mt-1 d-flex align-items-center gap-2 flex-wrap">
-                <span class="badge bg-dark rounded-pill" id="urnBadge-{{ q.id }}">URN: {{ q.urn }}</span>
-                <button type="button"
-                        class="btn btn-sm btn-outline-secondary rounded-pill py-0 px-2"
-                        style="font-size: 0.7rem;"
-                        onclick="copyUrnText('urnBadge-{{ q.id }}', this)">
-                  Copy URN
-                </button>
-              </div>
-            </div>
-            <a href="upi://pay?pa={{ q.vendor_vpa|urlencode }}&pn={{ q.vendor_name|urlencode }}&am={{ '%.2f'|format(q.amount) }}&cu=INR&tn={{ q.urn|urlencode }}"
-               class="btn btn-sm btn-primary rounded-pill px-3 flex-shrink-0">
-              <i class="bi bi-box-arrow-up-right me-1"></i>Pay via UPI App
-            </a>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-  {% endif %}
 </div>
-
-<!-- Cashier Pending Vendor QR Payment Requests -->
-{% if is_cashier and pending_qr_txs %}
-<div class="card p-3 mb-3 border-primary border-opacity-50">
-  <div class="d-flex justify-content-between align-items-center mb-2">
-    <h6 class="fw-bold mb-0"><i class="bi bi-upc-scan text-primary me-1"></i>Pending Vendor QR Requests</h6>
-    <span class="badge bg-primary rounded-pill">{{ pending_qr_txs|length }}</span>
-  </div>
-  {% for q in pending_qr_txs %}
-    <div class="border rounded-4 p-3 mb-2 bg-light d-flex justify-content-between align-items-start gap-2 flex-wrap">
-      <div class="min-w-0">
-        <div class="fw-bold small num-tabular">{{ q.user.name }} • ₹{{ "%.2f"|format(q.amount) }} → {{ q.vendor_name }}</div>
-        <div class="small text-muted text-truncate">UPI: {{ q.vendor_vpa }} • {{ q.category }}</div>
-        {% if q.remarks %}
-          <div class="small text-secondary mt-1">{{ q.remarks }}</div>
-        {% endif %}
-      </div>
-      <div class="d-flex gap-1 flex-shrink-0">
-        <form method="POST" action="{{ url_for('process_vendor_qr_payment', tx_id=q.id, action='approve') }}" class="m-0">
-          <button type="submit" class="btn btn-sm btn-success rounded-pill px-3">Approve &amp; Gen URN</button>
-        </form>
-        <form method="POST" action="{{ url_for('process_vendor_qr_payment', tx_id=q.id, action='reject') }}" class="m-0">
-          <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-2">Reject</button>
-        </form>
-      </div>
-    </div>
-  {% endfor %}
-</div>
-{% endif %}
 
 <!-- Tappable Pending Bills Card (Sum Total + Credit/Debit Breakdown) -->
 <div class="card p-3 mb-3 border-warning border-opacity-50" role="button" tabindex="0" data-bs-toggle="modal" data-bs-target="#pendingByPersonModal" style="cursor: pointer;">
@@ -258,7 +197,7 @@
   </div>
 </div>
 
-<!-- Cashier Approvals: Pending Bills & Leave Requests -->
+<!-- Cashier Approvals: Pending Bills & Approved Unpaid Bills with Pay Option -->
 {% if is_cashier %}
   <div class="card p-3 mb-3 border-warning border-opacity-50">
     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -275,14 +214,22 @@
             <div class="d-flex gap-1 flex-wrap my-1">
               <span class="badge {{ 'bg-success' if is_dep else 'bg-danger' }} rounded-pill">{{ 'CREDIT' if is_dep else 'DEBIT' }}</span>
               <span class="badge bg-dark rounded-pill">{{ c.category }}</span>
+              {% if c.urn %}
+                <span class="badge bg-primary rounded-pill">URN: {{ c.urn }}</span>
+              {% endif %}
               <span class="badge bg-white text-muted border rounded-pill">{{ c.created_at.strftime('%d %b %Y') }}</span>
             </div>
             <div class="small text-muted">{{ c.remarks }}</div>
           </div>
-          <div class="d-flex gap-1 flex-shrink-0">
+          <div class="d-flex gap-1 flex-shrink-0 flex-wrap">
             <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='approve') }}" class="m-0">
               <button class="btn btn-sm btn-success rounded-pill px-3">Approve</button>
             </form>
+            <button type="button"
+                    class="btn btn-sm btn-primary rounded-pill px-3"
+                    onclick="openCashierPayModal({{ c.id }}, '{{ (c.user.name if c.user else 'Member')|e }}', '{{ '%.2f'|format(c.amount) }}', '{{ (c.category or '')|e }}', '{{ (c.urn or '')|e }}', '{{ (c.vendor_vpa or '')|e }}', '{{ (c.vendor_name or '')|e }}', '{{ (c.remarks or '')|e }}')">
+              <i class="bi bi-wallet2 me-1"></i>Pay
+            </button>
             <form method="POST" action="{{ url_for('process_claim', claim_id=c.id, action='reject') }}" class="m-0">
               <button class="btn btn-sm btn-outline-danger rounded-pill px-2">Reject</button>
             </form>
@@ -298,6 +245,31 @@
       <p class="text-muted small mb-0">All caught up — no pending bills or deposits.</p>
     {% endfor %}
   </div>
+
+  {% if approved_unpaid_claims %}
+  <div class="card p-3 mb-3 border-primary border-opacity-50">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="fw-bold mb-0"><i class="bi bi-cash-coin text-primary me-1"></i>Approved Bills Ready to Pay</h6>
+      <span class="badge bg-primary rounded-pill">{{ approved_unpaid_claims|length }}</span>
+    </div>
+    {% for c in approved_unpaid_claims %}
+      <div class="border rounded-4 p-3 mb-2 bg-light d-flex justify-content-between align-items-start gap-2 flex-wrap">
+        <div class="min-w-0">
+          <div class="fw-bold small num-tabular">{{ c.user.name }} • ₹{{ "%.2f"|format(c.amount) }} • {{ c.category }}</div>
+          {% if c.urn %}
+            <div class="small fw-semibold text-primary mt-1">URN: {{ c.urn }}</div>
+          {% endif %}
+          <div class="small text-muted text-truncate">{{ c.remarks }}</div>
+        </div>
+        <button type="button"
+                class="btn btn-sm btn-primary rounded-pill px-3 flex-shrink-0"
+                onclick="openCashierPayModal({{ c.id }}, '{{ (c.user.name if c.user else 'Member')|e }}', '{{ '%.2f'|format(c.amount) }}', '{{ (c.category or '')|e }}', '{{ (c.urn or '')|e }}', '{{ (c.vendor_vpa or '')|e }}', '{{ (c.vendor_name or '')|e }}', '{{ (c.remarks or '')|e }}')">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Pay with URN
+        </button>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {% if pending_leave_requests %}
   <div class="card p-3 mb-3 border-danger border-opacity-50">
@@ -425,6 +397,9 @@
         <div class="fw-semibold small text-truncate">
           {{ b.user.name }} • {{ b.category }}
           <span class="badge {{ 'bg-success' if b.status == 'approved' else ('bg-warning text-dark' if b.status == 'pending' else 'bg-secondary') }} rounded-pill ms-1" style="font-size: 0.64rem;">{{ b.status|upper }}</span>
+          {% if b.paid_status == 'paid' %}
+            <span class="badge bg-info text-dark rounded-pill ms-1" style="font-size: 0.62rem;">PAID</span>
+          {% endif %}
         </div>
         <div class="text-muted text-truncate" style="font-size: 0.75rem;">{{ b.remarks }} • {{ b.created_at.strftime('%d %b %Y') }}</div>
       </div>
@@ -467,14 +442,14 @@
 </div>
 {% endif %}
 
-<!-- Scan & Pay Vendor QR Modal -->
+<!-- Scan & Pay Vendor QR Modal (Roommate: What, How Much, Optional Message, URN + Phone App Chooser + Auto-Submit Bill) -->
 <div class="modal fade" id="scanVendorQrModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content border-0 rounded-4">
       <div class="modal-header border-0 pb-1">
         <div>
-          <h6 class="modal-title fw-bold mb-0"><i class="bi bi-qr-code-scan text-primary me-1"></i>Scan Vendor QR &amp; Request</h6>
-          <small class="text-muted">Point camera at shop UPI QR or enter vendor VPA</small>
+          <h6 class="modal-title fw-bold mb-0"><i class="bi bi-qr-code-scan text-primary me-1"></i>Scan &amp; Pay Shop QR</h6>
+          <small class="text-muted">Scan QR, enter item &amp; amount, pay via phone app with URN</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="stopVendorQrScanner()"></button>
       </div>
@@ -489,42 +464,113 @@
         </div>
         <div id="qr-reader" class="mb-3 rounded-3 overflow-hidden" style="width: 100%; max-width: 360px;"></div>
 
-        <form method="POST" action="{{ url_for('request_vendor_qr_payment') }}">
-          <div class="mb-2">
-            <label class="form-label small text-muted mb-1">Vendor UPI ID (VPA)</label>
-            <input type="text" name="vendor_vpa" id="vendorVpaInput" class="form-control form-control-sm" placeholder="shop@upi" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label small text-muted mb-1">Shop / Vendor Name</label>
-            <input type="text" name="vendor_name" id="vendorNameInput" class="form-control form-control-sm" placeholder="e.g., Fresh Mart Groceries" required>
-          </div>
+        <form id="scanPayAutoClaimForm" method="POST" action="{{ url_for('scan_pay_and_auto_claim') }}">
           <div class="row g-2 mb-2">
-            <div class="col-5">
-              <label class="form-label small text-muted mb-1">Amount (₹)</label>
-              <input type="number" step="0.01" name="amount" id="vendorAmountInput" class="form-control form-control-sm num-tabular" placeholder="0.00" required>
+            <div class="col-6">
+              <label class="form-label small text-muted mb-1">Vendor UPI ID (VPA)</label>
+              <input type="text" name="vendor_vpa" id="vendorVpaInput" class="form-control form-control-sm" placeholder="shop@upi" required>
             </div>
-            <div class="col-7">
+            <div class="col-6">
+              <label class="form-label small text-muted mb-1">Shop / Vendor Name</label>
+              <input type="text" name="vendor_name" id="vendorNameInput" class="form-control form-control-sm" placeholder="e.g., Grocery Store" required>
+            </div>
+          </div>
+
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small text-muted mb-1">Paying For (Material / Item)</label>
+              <input type="text" name="material" id="vendorMaterialInput" class="form-control form-control-sm" placeholder="e.g., Groceries, Vegetables" required>
+            </div>
+            <div class="col-6">
               <label class="form-label small text-muted mb-1">Category</label>
-              <select name="category" class="form-select form-select-sm" required>
+              <select name="category" class="form-select form-select-sm" onchange="toggleSpecifyInput(this, 'qrCustomCatWrap')" required>
                 {% for cat in expense_categories %}
                   <option value="{{ cat }}">{{ cat }}</option>
                 {% endfor %}
               </select>
             </div>
           </div>
-          <div class="mb-3">
-            <label class="form-label small text-muted mb-1">Remarks (optional)</label>
-            <input type="text" name="remarks" class="form-control form-control-sm" placeholder="Groceries / vegetables / items">
+
+          <div class="mb-2 d-none" id="qrCustomCatWrap">
+            <input type="text" name="custom_category" class="form-control form-control-sm" placeholder="Specify custom expense item">
           </div>
-          <button type="submit" class="btn btn-primary btn-sm w-100 rounded-pill py-2">Submit for Cashier Approval</button>
+
+          <div class="row g-2 mb-3">
+            <div class="col-5">
+              <label class="form-label small text-muted mb-1">Amount (₹)</label>
+              <input type="number" step="0.01" name="amount" id="vendorAmountInput" class="form-control form-control-sm num-tabular" placeholder="0.00" required>
+            </div>
+            <div class="col-7">
+              <label class="form-label small text-muted mb-1">Message (Optional)</label>
+              <input type="text" name="remarks" id="vendorRemarksInput" class="form-control form-control-sm" placeholder="Optional note">
+            </div>
+          </div>
+
+          <div id="scanPayResultBox" class="alert alert-info small py-2 px-3 rounded-3 d-none mb-2"></div>
+          <button type="submit" class="btn btn-primary btn-sm w-100 rounded-pill py-2">
+            <i class="bi bi-send-check me-1"></i>Pay via Phone App (URN Message) &amp; Auto-Submit Bill
+          </button>
         </form>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Cashfree PG Top-Up Modal (Cashier) -->
+<!-- Cashier Approve & Pay Modal (Uses Same URN + Chooses Payment Method / Phone UPI App) -->
 {% if is_cashier %}
+<div class="modal fade" id="cashierPayModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 rounded-4">
+      <div class="modal-header border-0 pb-1">
+        <div>
+          <h6 class="modal-title fw-bold mb-0"><i class="bi bi-wallet2 text-primary me-1"></i>Approve &amp; Pay Bill</h6>
+          <small class="text-muted" id="cashierPaySubtitle">Settle using the transaction URN</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="cashierPayForm" method="POST" action="">
+        <div class="modal-body pt-2">
+          <div class="p-3 rounded-3 bg-light border mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="small text-muted">Amount to Pay</span>
+              <span class="fw-bold fs-5 num-tabular text-primary" id="cashierPayAmountText">₹0.00</span>
+            </div>
+            <div class="small mt-1">
+              <strong>Reference (URN):</strong> <span class="badge bg-dark rounded-pill" id="cashierPayUrnText">—</span>
+            </div>
+            <div class="small text-muted mt-1" id="cashierPayDetailsText"></div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Choose How You Want to Pay</label>
+            <select name="payment_method" id="cashierPaymentMethodSelect" class="form-select form-select-sm" onchange="updateCashierUpiLink()" required>
+              <option value="UPI App">UPI App (GPay / PhonePe / Paytm / BHIM — URN as Note)</option>
+              <option value="Cash">Cash Settlement</option>
+              <option value="Bank Transfer">Bank Transfer (IMPS / NEFT / UPI)</option>
+              <option value="Cashfree PG">Cashfree PG Checkout</option>
+            </select>
+          </div>
+
+          <div class="mb-3" id="cashierDirectVpaWrap">
+            <label class="form-label small text-muted mb-1">Payee UPI ID (Optional if paying member/vendor directly)</label>
+            <input type="text" id="cashierPayeeVpaInput" class="form-control form-control-sm" placeholder="payee@upi" oninput="updateCashierUpiLink()">
+          </div>
+
+          <div class="d-grid gap-2 mb-2">
+            <a href="#" id="cashierOpenUpiAppBtn" class="btn btn-outline-primary btn-sm rounded-pill py-2">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Open Phone Payment App (with URN Note)
+            </a>
+            <button type="submit" class="btn btn-success btn-sm rounded-pill py-2">
+              <i class="bi bi-check2-circle me-1"></i>Approve &amp; Confirm Payment (Same URN)
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Cashfree PG Top-Up Modal (Cashier) -->
 <div class="modal fade" id="cashfreeTopupModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 rounded-4">
@@ -557,26 +603,14 @@
 <script>
   const PENDING_BY_USER = {{ pending_by_user | tojson }};
   let html5QrInstance = null;
+  let activeCashierPayAmount = "0.00";
+  let activeCashierPayUrn = "";
+  let activeCashierPayeeName = "Member";
 
   function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text || '';
     return div.innerHTML;
-  }
-
-  function copyUrnText(elementId, btnEl) {
-    const el = document.getElementById(elementId);
-    if (!el) return;
-    const urn = el.textContent.replace(/^URN:\s*/i, '').trim();
-    const done = () => {
-      if (!btnEl) return;
-      const prev = btnEl.textContent;
-      btnEl.textContent = 'Copied';
-      setTimeout(() => { btnEl.textContent = prev; }, 1500);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(urn).then(done).catch(() => {});
-    }
   }
 
   function startVendorQrScanner() {
@@ -609,6 +643,92 @@
     if (html5QrInstance && html5QrInstance.isScanning) {
       html5QrInstance.stop().catch(() => {});
     }
+  }
+
+  document.getElementById('scanPayAutoClaimForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const resultBox = document.getElementById('scanPayResultBox');
+    const formData = new FormData(form);
+
+    try {
+      const resp = await fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        if (resultBox) {
+          resultBox.className = 'alert alert-danger small py-2 px-3 rounded-3 mb-2';
+          resultBox.textContent = data.error || 'Could not process request.';
+          resultBox.classList.remove('d-none');
+        }
+        return;
+      }
+
+      if (resultBox) {
+        resultBox.className = 'alert alert-success small py-2 px-3 rounded-3 mb-2';
+        resultBox.innerHTML = `
+          <div class="fw-bold">URN: ${escapeHtml(data.urn)}</div>
+          <div>Bill auto-submitted for Cashier approval. Opening your phone's UPI app...</div>
+          <div class="mt-2 d-flex gap-2">
+            <a href="${data.upi_url}" class="btn btn-sm btn-dark rounded-pill px-3">Open UPI App</a>
+            <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3" onclick="window.location.reload()">Done</button>
+          </div>
+        `;
+        resultBox.classList.remove('d-none');
+      }
+
+      window.location.href = data.upi_url;
+    } catch (err) {
+      if (resultBox) {
+        resultBox.className = 'alert alert-danger small py-2 px-3 rounded-3 mb-2';
+        resultBox.textContent = 'Error: ' + err.message;
+        resultBox.classList.remove('d-none');
+      }
+    }
+  });
+
+  function updateCashierUpiLink() {
+    const vpaEl = document.getElementById('cashierPayeeVpaInput');
+    const linkEl = document.getElementById('cashierOpenUpiAppBtn');
+    const methodEl = document.getElementById('cashierPaymentMethodSelect');
+    if (!linkEl) return;
+
+    const vpa = (vpaEl ? vpaEl.value : '').trim();
+    const pn = encodeURIComponent(activeCashierPayeeName || 'Payee');
+    const tn = encodeURIComponent(activeCashierPayUrn || '');
+    const am = encodeURIComponent(activeCashierPayAmount || '0.00');
+
+    if (vpa) {
+      linkEl.href = `upi://pay?pa=${encodeURIComponent(vpa)}&pn=${pn}&am=${am}&cu=INR&tn=${tn}`;
+    } else {
+      linkEl.href = `upi://pay?pn=${pn}&am=${am}&cu=INR&tn=${tn}`;
+    }
+
+    if (methodEl && methodEl.value === 'Cashfree PG') {
+      const cfAmountEl = document.getElementById('cfTopupAmount');
+      if (cfAmountEl) cfAmountEl.value = activeCashierPayAmount;
+    }
+  }
+
+  function openCashierPayModal(claimId, userName, amountStr, category, urn, vendorVpa, vendorName, remarks) {
+    activeCashierPayAmount = amountStr || "0.00";
+    activeCashierPayUrn = urn || ("CLM-" + claimId);
+    activeCashierPayeeName = vendorName || userName || "Member";
+
+    const form = document.getElementById('cashierPayForm');
+    form.action = `/claims/${claimId}/approve-and-pay`;
+
+    document.getElementById('cashierPaySubtitle').textContent = `${userName} • ${category}`;
+    document.getElementById('cashierPayAmountText').textContent = `₹${activeCashierPayAmount}`;
+    document.getElementById('cashierPayUrnText').textContent = activeCashierPayUrn;
+    document.getElementById('cashierPayDetailsText').textContent = remarks || '';
+    document.getElementById('cashierPayeeVpaInput').value = vendorVpa || '';
+
+    updateCashierUpiLink();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('cashierPayModal')).show();
   }
 
   async function launchCashfreePgTopup() {
