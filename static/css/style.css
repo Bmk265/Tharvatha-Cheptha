@@ -44,6 +44,7 @@ body {
   color: #ffffff;
   font-weight: 700;
   object-fit: cover;
+  flex-shrink: 0;
 }
 
 .avatar-sm {
@@ -56,6 +57,23 @@ body {
   width: 56px;
   height: 56px;
   font-size: 1.25rem;
+}
+
+.feed-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center top;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.feed-post-img {
+  width: 100%;
+  max-height: 380px;
+  object-fit: cover;
+  border-radius: 0.85rem;
 }
 
 /* Bottom navigation bar — fits all 5 items cleanly on narrow screens */
