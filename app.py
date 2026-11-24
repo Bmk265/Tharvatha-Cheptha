@@ -173,6 +173,7 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     avatar_path = db.Column(db.String(255), nullable=True)
+    upi_id = db.Column(db.String(120), nullable=True)
     is_super_admin = db.Column(db.Boolean, default=False)
     role = db.Column(db.String(20), default='member')
     personal_balance = db.Column(db.Float, default=0.0)
@@ -198,6 +199,7 @@ class BillClaim(db.Model):
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(100), nullable=False)
     remarks = db.Column(db.String(255), nullable=False)
+    member_upi = db.Column(db.String(120), nullable=True)
     vendor_vpa = db.Column(db.String(120), nullable=True)
     vendor_name = db.Column(db.String(120), nullable=True)
     urn = db.Column(db.String(64), nullable=True)
@@ -371,11 +373,13 @@ def ensure_schema_and_default_team():
         'user': [
             ('active_team_id', 'INTEGER'),
             ('avatar_path', 'VARCHAR(255)'),
+            ('upi_id', 'VARCHAR(120)'),
             ('is_super_admin', 'BOOLEAN DEFAULT FALSE'),
         ],
         'pool_ledger': [('team_id', 'INTEGER')],
         'bill_claim': [
             ('team_id', 'INTEGER'),
+            ('member_upi', 'VARCHAR(120)'),
             ('vendor_vpa', 'VARCHAR(120)'),
             ('vendor_name', 'VARCHAR(120)'),
             ('urn', 'VARCHAR(64)'),
@@ -939,6 +943,7 @@ def scan_pay_and_auto_claim():
         amount=amount,
         category=category,
         remarks=full_remarks,
+        member_upi=current_user.upi_id or '',
         vendor_vpa=vendor_vpa,
         vendor_name=vendor_name,
         urn=urn,
@@ -985,6 +990,10 @@ def approve_and_record_claim_payment(claim_id):
     claim = BillClaim.query.get_or_404(claim_id)
     team_name = claim.team.name if getattr(claim, 'team', None) else 'TEAM POOL'
     payment_method = (request.form.get('payment_method') or 'UPI App').strip()
+    payee_upi = (request.form.get('payee_upi') or '').strip()
+    if payee_upi:
+        claim.member_upi = payee_upi
+
     urn = claim.urn or _extract_urn_from_remarks(claim.remarks) or _build_rich_urn(
         claim.user.name if claim.user else 'USER',
         claim.category,
@@ -1037,6 +1046,66 @@ def approve_and_record_claim_payment(claim_id):
     db.session.commit()
     flash(f"Bill approved & recorded as paid via {payment_method} • URN: {urn}", "success")
     return redirect(url_for('dashboard'))
+
+
+@app.route('/claims/<int:claim_id>/mark-paid', methods=['POST'])
+@login_required
+@team_and_cashier_required
+def mark_claim_paid(claim_id):
+    claim = BillClaim.query.get_or_404(claim_id)
+    team_name = claim.team.name if getattr(claim, 'team', None) else 'TEAM POOL'
+    urn = claim.urn or _extract_urn_from_remarks(claim.remarks) or _build_rich_urn(
+        claim.user.name if claim.user else 'USER',
+        claim.category,
+        prefix="CLM"
+    )
+    claim.urn = urn
+
+    if claim.status != 'approved':
+        claim.status = 'approved'
+        is_deposit = (claim.category == "Monthly Deposit")
+        ledger_type = 'credit' if is_deposit else 'debit'
+
+        db.session.add(PoolLedger(
+            team_id=claim.team_id,
+            tx_type=ledger_type,
+            amount=claim.amount,
+            category=claim.category,
+            remarks=f"[URN: {urn}] Approved & Marked Paid [{claim.user.name}]: {claim.remarks}",
+            user_id=claim.user_id
+        ))
+
+        tm = TeamMembership.query.filter_by(team_id=claim.team_id, user_id=claim.user_id).first()
+        if tm:
+            if is_deposit:
+                tm.personal_balance += claim.amount
+            else:
+                tm.personal_balance -= claim.amount
+
+        db.session.add(PersonalTransaction(
+            team_id=claim.team_id,
+            user_id=claim.user_id,
+            tx_type=ledger_type,
+            amount=claim.amount,
+            category=claim.category,
+            remarks=f"[URN: {urn}] Marked Paid: {claim.remarks}"
+        ))
+
+    claim.paid_status = 'paid'
+    wtx = WalletTransaction.query.filter_by(urn=urn).first()
+    if wtx:
+        wtx.status = 'success'
+
+    notify_users(
+        claim.team_id,
+        [claim.user_id],
+        f"Bill Marked Paid • {team_name}",
+        f"₹{claim.amount:.2f} ({claim.category}) marked paid • URN: {urn}",
+        url_for('my_transactions')
+    )
+    db.session.commit()
+    flash(f"Marked ₹{claim.amount:.2f} bill as paid • URN: {urn}", "success")
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # ---------------- MAIN TABS ----------------
@@ -1258,6 +1327,7 @@ def submit_claim():
         amount=amount,
         category=category,
         remarks=formatted_remarks,
+        member_upi=current_user.upi_id or '',
         urn=urn,
         status='pending',
         paid_status='unpaid'
@@ -1340,7 +1410,7 @@ def process_claim(claim_id, action):
             f"Your ₹{claim.amount:.2f} ({claim.category}) was approved • URN: {urn}",
             url_for('my_transactions')
         )
-        flash(f"Approved ₹{claim.amount:.2f} • URN: {urn}. Tap 'Pay' to settle with this URN.", "success")
+        flash(f"Approved ₹{claim.amount:.2f} • URN: {urn}. Tap 'Pay' or 'Mark as Paid' to settle.", "success")
 
     elif action == 'reject':
         claim.status = 'rejected'
@@ -1362,9 +1432,24 @@ def process_claim(claim_id, action):
 @super_admin_required
 def super_admin_delete_ledger(entry_id):
     entry = PoolLedger.query.get_or_404(entry_id)
+    urn = _extract_urn_from_remarks(entry.remarks)
+    if urn:
+        for ptx in PersonalTransaction.query.filter(PersonalTransaction.remarks.contains(urn)).all():
+            tm = TeamMembership.query.filter_by(team_id=ptx.team_id, user_id=ptx.user_id).first()
+            if tm:
+                if ptx.tx_type == 'credit':
+                    tm.personal_balance = round((tm.personal_balance or 0.0) - ptx.amount, 2)
+                else:
+                    tm.personal_balance = round((tm.personal_balance or 0.0) + ptx.amount, 2)
+            db.session.delete(ptx)
+        for claim in BillClaim.query.filter(BillClaim.urn == urn).all():
+            db.session.delete(claim)
+        for wtx in WalletTransaction.query.filter_by(urn=urn).all():
+            db.session.delete(wtx)
+
     db.session.delete(entry)
     db.session.commit()
-    flash("Ledger transaction deleted by Super Admin.", "info")
+    flash("Ledger transaction and linked records deleted by Super Admin.", "info")
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -1373,9 +1458,27 @@ def super_admin_delete_ledger(entry_id):
 @super_admin_required
 def super_admin_delete_claim(claim_id):
     claim = BillClaim.query.get_or_404(claim_id)
+    urn = claim.urn or _extract_urn_from_remarks(claim.remarks)
+
+    if urn:
+        for entry in PoolLedger.query.filter(PoolLedger.remarks.contains(urn)).all():
+            db.session.delete(entry)
+
+        for ptx in PersonalTransaction.query.filter(PersonalTransaction.remarks.contains(urn)).all():
+            tm = TeamMembership.query.filter_by(team_id=ptx.team_id, user_id=ptx.user_id).first()
+            if tm:
+                if ptx.tx_type == 'credit':
+                    tm.personal_balance = round((tm.personal_balance or 0.0) - ptx.amount, 2)
+                else:
+                    tm.personal_balance = round((tm.personal_balance or 0.0) + ptx.amount, 2)
+            db.session.delete(ptx)
+
+        for wtx in WalletTransaction.query.filter_by(urn=urn).all():
+            db.session.delete(wtx)
+
     db.session.delete(claim)
     db.session.commit()
-    flash("Bill claim deleted by Super Admin.", "info")
+    flash("Bill and linked ledger/personal entries deleted by Super Admin.", "info")
     return redirect(request.referrer or url_for('dashboard'))
 
 
@@ -1668,6 +1771,7 @@ def profile():
     team, _ = get_active_team_context()
     if request.method == 'POST':
         current_user.name = request.form['name'].strip()
+        current_user.upi_id = (request.form.get('upi_id') or '').strip() or None
         new_pass = request.form.get('new_password', '').strip()
         if new_pass:
             current_user.password_hash = generate_password_hash(new_pass)
